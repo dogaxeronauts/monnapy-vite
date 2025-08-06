@@ -367,27 +367,46 @@ const FlappyBTCChart: React.FC = () => {
           ctx.fillRect(boxX + boxWidth + i - 2, boxY - i, 2, boxHeight + i * 2);
         });
 
-        // Game Over text with arcade style
-        const flash = Math.sin(Date.now() * 0.01) > 0;
-        ctx.fillStyle = flash ? "#fef08a" : "#facc15";
-        ctx.font = "bold 40px 'Press Start 2P'";
-        ctx.textAlign = "center";
-        ctx.fillText("GAME OVER", GAME_WIDTH / 2, boxY + 70);
-
-        // Score display
-        ctx.font = "20px 'Press Start 2P'";
-        ctx.fillStyle = "#8b5cf6";
-        ctx.fillText(`FINAL SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
-
-        // Show different messages based on score
+        // Score and message display based on score
         if (score > 100) {
+          // NAD Community success message
+          const flash = Math.sin(Date.now() * 0.01) > 0;
+          ctx.fillStyle = flash ? "#fef08a" : "#facc15";
+          ctx.font = "bold 32px 'Press Start 2P'";
+          ctx.textAlign = "center";
+          ctx.fillText("LEGENDARY NAD!", GAME_WIDTH / 2, boxY + 70);
+
+          // Score display with NAD style
+          ctx.font = "20px 'Press Start 2P'";
+          ctx.fillStyle = "#8b5cf6";
+          ctx.fillText(`NAD SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
+
+          // Blinking mint message
           if (Math.floor(Date.now() / 500) % 2 === 0) {
             ctx.font = "16px 'Press Start 2P'";
-            ctx.fillStyle = "#fef08a"; // Yellow color
-            ctx.fillText("NFT MINT AVAILABLE!", GAME_WIDTH / 2, boxY + 160);
+            ctx.fillStyle = "#fef08a";
+            ctx.fillText("CLAIM YOUR NAD BADGE!", GAME_WIDTH / 2, boxY + 160);
           }
+        } else {
+          // Regular game over for low scores
+          const flash = Math.sin(Date.now() * 0.01) > 0;
+          ctx.fillStyle = flash ? "#ef4444" : "#dc2626"; // Red tones
+          ctx.font = "bold 32px 'Press Start 2P'";
+          ctx.textAlign = "center";
+          ctx.fillText("NOT NAD ENOUGH!", GAME_WIDTH / 2, boxY + 70);
+
+          // Score display
+          ctx.font = "20px 'Press Start 2P'";
+          ctx.fillStyle = "#8b5cf6";
+          ctx.fillText(`SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
+
+          // Encouraging message
+          ctx.font = "16px 'Press Start 2P'";
+          ctx.fillStyle = "#fef08a";
+          ctx.fillText("NEED 100+ TO JOIN NAD!", GAME_WIDTH / 2, boxY + 160);
         }
         
+        // Continue prompt
         ctx.font = "16px 'Press Start 2P'";
         ctx.fillStyle = "#f0f9ff";
         ctx.fillText("PRESS SPACE TO CONTINUE", GAME_WIDTH / 2, boxY + 190);
