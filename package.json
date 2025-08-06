@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.84.1",
-    "autoprefixer": "^10.4.21",
     "connectkit": "^1.9.1",
     "ethers": "^6.15.0",
     "react": "^18",
@@ -25,6 +24,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4",
+    "autoprefixer": "^10.4.21",
     "eslint": "^8",
     "eslint-config-next": "14.2.31",
     "postcss": "^8.5.6",

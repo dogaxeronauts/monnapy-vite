@@ -74,7 +74,7 @@ const FlappyBTCChart: React.FC = () => {
   };
 
   const resetGame = () => {
-    setScore(100);
+    setScore(0); // Başlangıç skoru 0 olmalı
     setGameOver(false);
     setGameStarted(false);
     setCombo(0);
@@ -86,6 +86,13 @@ const FlappyBTCChart: React.FC = () => {
     lastCandleRef.current = Date.now();
     lastPowerUpRef.current = Date.now();
     activeEffectsRef.current = {};
+
+    // Canvas'ı temizle
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    }
   };
 
   const flap = () => {
@@ -262,17 +269,36 @@ const FlappyBTCChart: React.FC = () => {
         }
       }
 
-      // Score and combo with pixelated effect
-      ctx.fillStyle = "#e0e7ff";
-      ctx.font = "bold 20px 'Press Start 2P', monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(`SCORE: ${score}`, GAME_WIDTH / 2, 32);
+      // Score panel with retro style
+      const drawRetroPanel = (x: number, y: number, width: number, height: number) => {
+        // Panel background
+        ctx.fillStyle = "#1e1b4b";
+        ctx.fillRect(x, y, width, height);
+        
+        // Pixel border effect
+        ctx.fillStyle = "#818cf8";
+        ctx.fillRect(x, y, width, 2); // Top
+        ctx.fillRect(x, y, 2, height); // Left
+        ctx.fillStyle = "#312e81";
+        ctx.fillRect(x, y + height - 2, width, 2); // Bottom
+        ctx.fillRect(x + width - 2, y, 2, height); // Right
+      };
 
-      // Draw combo counter if > 0
+      // Score display
+      drawRetroPanel(10, 10, 200, 40);
+      ctx.fillStyle = "#fef08a";
+      ctx.font = "20px 'Press Start 2P'";
+      ctx.textAlign = "left";
+      ctx.fillText(`SCORE:${score}`, 20, 37);
+
+      // Combo display with flash effect
       if (combo > 0) {
-        ctx.font = "16px 'Press Start 2P', monospace";
-        ctx.fillStyle = "#f59e0b";
-        ctx.fillText(`COMBO x${combo}`, GAME_WIDTH / 2, 60);
+        drawRetroPanel(GAME_WIDTH - 210, 10, 200, 40);
+        const comboFlash = Math.sin(Date.now() * 0.01) * 0.5 + 0.5;
+        ctx.fillStyle = `rgb(${255 * comboFlash}, ${180 * comboFlash}, 0)`;
+        ctx.font = "20px 'Press Start 2P'";
+        ctx.textAlign = "right";
+        ctx.fillText(`COMBOx${combo}`, GAME_WIDTH - 20, 37);
       }
 
       // Draw active effects
@@ -305,28 +331,66 @@ const FlappyBTCChart: React.FC = () => {
         ctx.fillText(`${text}: ${timeLeft}s`, 10, 30 + index * 20);
       });
 
-      // Game over with CRT screen effect
+      // Game over with retro arcade style
       if (gameOver) {
-        // Dark overlay with scan lines
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        // Dark overlay with scanlines
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
         ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        for (let y = 0; y < GAME_HEIGHT; y += PIXEL_SIZE * 2) {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-          ctx.fillRect(0, y, GAME_WIDTH, PIXEL_SIZE);
+        
+        // Retro scanlines effect
+        for (let y = 0; y < GAME_HEIGHT; y += PIXEL_SIZE) {
+          ctx.fillStyle = `rgba(255, 255, 255, ${y % (PIXEL_SIZE * 2) === 0 ? 0.03 : 0})`;
+          ctx.fillRect(0, y, GAME_WIDTH, 1);
         }
 
-        // Glitch effect
-        const glitchOffset = Math.random() * 5;
-        ctx.fillStyle = "#ff0000";
-        ctx.font = "bold 28px 'Press Start 2P', monospace";
-        ctx.fillText("GAME OVER", GAME_WIDTH / 2 + glitchOffset, GAME_HEIGHT / 2 - 10);
-        ctx.fillStyle = "#00ff00";
-        ctx.fillText("GAME OVER", GAME_WIDTH / 2 - glitchOffset, GAME_HEIGHT / 2 - 10);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText("GAME OVER", GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10);
+        // Create retro game over box
+        const boxWidth = 400;
+        const boxHeight = 200;
+        const boxX = (GAME_WIDTH - boxWidth) / 2;
+        const boxY = (GAME_HEIGHT - boxHeight) / 2;
 
-        ctx.font = "16px 'Press Start 2P', monospace";
-        ctx.fillText("PRESS SPACE", GAME_WIDTH / 2, GAME_HEIGHT / 2 + 30);
+        // Draw box background with pixel perfect border
+        ctx.fillStyle = "#1a103c";
+        ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        
+        // Pixel border effect
+        const borderColors = ["#4c1d95", "#6d28d9", "#7c3aed"];
+        borderColors.forEach((color, i) => {
+          ctx.fillStyle = color;
+          // Top border
+          ctx.fillRect(boxX - i, boxY - i, boxWidth + i * 2, 2);
+          // Bottom border
+          ctx.fillRect(boxX - i, boxY + boxHeight + i - 2, boxWidth + i * 2, 2);
+          // Left border
+          ctx.fillRect(boxX - i, boxY - i, 2, boxHeight + i * 2);
+          // Right border
+          ctx.fillRect(boxX + boxWidth + i - 2, boxY - i, 2, boxHeight + i * 2);
+        });
+
+        // Game Over text with arcade style
+        const flash = Math.sin(Date.now() * 0.01) > 0;
+        ctx.fillStyle = flash ? "#fef08a" : "#facc15";
+        ctx.font = "bold 40px 'Press Start 2P'";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", GAME_WIDTH / 2, boxY + 70);
+
+        // Score display
+        ctx.font = "20px 'Press Start 2P'";
+        ctx.fillStyle = "#8b5cf6";
+        ctx.fillText(`FINAL SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
+
+        // Show different messages based on score
+        if (score > 100) {
+          if (Math.floor(Date.now() / 500) % 2 === 0) {
+            ctx.font = "16px 'Press Start 2P'";
+            ctx.fillStyle = "#fef08a"; // Yellow color
+            ctx.fillText("NFT MINT AVAILABLE!", GAME_WIDTH / 2, boxY + 160);
+          }
+        }
+        
+        ctx.font = "16px 'Press Start 2P'";
+        ctx.fillStyle = "#f0f9ff";
+        ctx.fillText("PRESS SPACE TO CONTINUE", GAME_WIDTH / 2, boxY + 190);
       }
 
       if (!gameStarted && !gameOver) {
@@ -464,66 +528,274 @@ const FlappyBTCChart: React.FC = () => {
     };
   }, [gameOver, gameStarted]);
 
-	useEffect(() => {
-	  // Only submit if game is over, game was started, and user is connected
-	  if (gameOver && gameStarted && isConnected && walletClient) {
-		const submitScore = async () => {
-		  try {
-			const abi = [
-			  "function saveScore(uint256 score) external",
-			];
-			const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4"; // <-- Replace with your contract address
+  const mintNFT = async () => {
+    if (!isConnected || !walletClient) {
+      alert("Please connect your wallet first!");
+      return;
+    }
 
-			// Create ethers.js signer from wagmi walletClient
-			const provider = new ethers.BrowserProvider(window.ethereum);
-			const signer = await provider.getSigner();
+    try {
+      const abi = [
+        "function saveScore(uint256 score) external",
+      ];
+      const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
 
-			const contract = new ethers.Contract(contractAddress, abi, signer);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, abi, signer);
 
-			const tx = await contract.saveScore(score);
-			await tx.wait();
-			alert("Score submitted! NFT minted if eligible.");
-		  } catch (err) {
+      const tx = await contract.saveScore(score);
+      await tx.wait();
+      alert("NFT minted successfully! 🎉");
+    } catch (err) {
       if (err instanceof Error) {
-        alert("Error submitting score: " + err.message);
+        alert("Error minting NFT: " + err.message);
       } else {
-        alert("Error submitting score: " + String(err));
+        alert("Error minting NFT: " + String(err));
       }
-		  }
-		};
-
-		submitScore();
-	  }
-	}, [gameOver, gameStarted, isConnected, walletClient, score]);
+    }
+  };
 
   return (
-    <div className="flex flex-col items-center mt-6">
-      <div className="relative">
-        <div className="absolute inset-0 bg-blue-900/20 pointer-events-none" style={{
-          backgroundImage: `repeating-linear-gradient(0deg, rgba(0,0,0,0.2) 0px, rgba(0,0,0,0.2) 1px, transparent 1px, transparent 2px)`,
-          backgroundSize: '100% 2px',
-          animation: 'scanline 10s linear infinite',
-        }} />
-        <canvas
-          ref={canvasRef}
-          width={GAME_WIDTH}
-          height={GAME_HEIGHT}
-          onClick={flap}
-          tabIndex={0}
-          className="border-8 border-slate-800 rounded-lg shadow-[0_0_20px_rgba(0,0,0,0.5)] outline-none"
-          style={{
-            imageRendering: 'pixelated',
-            boxShadow: '0 0 10px #4f46e5, 0 0 20px #4f46e5, inset 0 0 15px rgba(79, 70, 229, 0.5)'
-          }}
-        />
+    <div className="min-h-screen bg-[#0a0718] flex flex-col items-center justify-center relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="fixed inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMCAzNmMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMTgtMThjMy4zMTQgMCA2LTIuNjg2IDYtNnMtMi42ODYtNi02LTYtNiAyLjY4Ni02IDYgMi42ODYgNiA2IDZ6Ii8+PC9nPjwvc3ZnPg==')] opacity-5"></div>
+
+      {/* Arcade Cabinet Style Container */}
+      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm transform -translate-y-8">
+        {/* Decorative Top Light */}
+        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-yellow-300 to-yellow-500 animate-pulse shadow-[0_0_20px_rgba(234,179,8,0.5)]"></div>
+        </div>
+
+        {/* Game Title with Neon Effect */}
+        <div className="text-center mb-8 relative">
+          <h1 className="font-['Press_Start_2P'] text-3xl relative">
+            <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONNAPY</span>
+            <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-300">
+              MONNAPY
+            </span>
+          </h1>
+          <p className="font-['Press_Start_2P'] text-sm mt-2 relative">
+            <span className="absolute inset-0 text-purple-400 blur-[1px]">GMONAD @0xGbyte</span>
+            <span className="relative text-purple-300">GMONAD @0xGbyte</span>
+          </p>
+        </div>
+
+        {/* Game Screen Container with Enhanced CRT Effect */}
+        <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner">
+          {/* CRT Screen Effects */}
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black opacity-20"></div>
+            <div className="absolute inset-0" style={{
+              backgroundImage: `
+                linear-gradient(transparent 50%, rgba(0, 0, 0, 0.1) 50%),
+                radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.3) 100%)
+              `,
+              backgroundSize: '100% 4px, 100% 100%',
+              animation: 'scanline 10s linear infinite',
+            }}></div>
+          </div>
+
+          {/* Game Canvas */}
+          <canvas
+            ref={canvasRef}
+            width={GAME_WIDTH}
+            height={GAME_HEIGHT}
+            onClick={flap}
+            tabIndex={0}
+            className="bg-slate-900 outline-none"
+            style={{
+              imageRendering: 'pixelated'
+            }}
+          />
+        </div>
+
+        {/* Game Controls and Stats with Arcade Style */}
+        <div className="mt-8 grid grid-cols-2 gap-6">
+          <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
+            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">CONTROLS</p>
+            <div className="flex items-center justify-center gap-4">
+              <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
+                <span className="text-yellow-200 text-xs">SPACE</span>
+              </div>
+              <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
+                <span className="text-yellow-200 text-xs">CLICK</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
+            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">HIGHSCORE</p>
+            <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{score}</p>
+          </div>
+        </div>
+
+        {/* NFT Mint Button - Positioned at top when available */}
+        {gameOver && score > 100 && (
+          <div className="absolute left-1/2 transform -translate-x-1/2 -top-24">
+            <div className="relative animate-float">
+              {/* Enhanced glow effect background */}
+              <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
+              
+              {/* Pulsing ring */}
+              <div className="absolute -inset-4 bg-gradient-to-r from-yellow-400 via-yellow-200 to-yellow-400 rounded-2xl opacity-30 animate-pulse-ring"></div>
+              
+              {/* Animated border */}
+              <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-yellow-200 to-yellow-400 rounded-xl animate-pulse-border"></div>
+              
+              {/* Main button with enhanced effects */}
+              <button
+                onClick={mintNFT}
+                className="relative px-8 py-4 bg-gradient-to-b from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 rounded-xl 
+                          font-['Press_Start_2P'] text-lg text-white shadow-lg hover:shadow-yellow-500/50 
+                          transition-all duration-300 border-2 border-yellow-700 transform hover:scale-105 
+                          z-10 min-w-[240px] overflow-hidden"
+              >
+                {/* Multiple animated shine effects */}
+                <span className="absolute inset-0 bg-gradient-to-r from-yellow-400/0 via-yellow-400/30 to-yellow-400/0 animate-shine"></span>
+                <span className="absolute inset-0 bg-gradient-to-r from-yellow-400/0 via-yellow-400/20 to-yellow-400/0 animate-shine-delayed"></span>
+                
+                {/* Pixelated texture overlay */}
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-20"></div>
+                
+                <span className="relative">MINT NFT 🏆</span>
+              </button>
+            </div>
+            
+            {/* Enhanced floating text with glow */}
+            <p className="font-['Press_Start_2P'] text-xs text-yellow-300 mt-4 animate-bounce relative">
+              <span className="absolute inset-0 blur-sm text-yellow-200">Score {score} - Eligible for NFT!</span>
+              <span className="relative">Score {score} - Eligible for NFT!</span>
+            </p>
+          </div>
+        )}
+
+        {/* Game Status Messages */}
+        <div className="text-center mt-8">
+          {!gameOver && (
+            <div className="inline-block relative">
+              <p className="font-['Press_Start_2P'] text-sm text-yellow-300 animate-pulse relative">
+                <span className="absolute inset-0 blur-[2px] text-yellow-200">{'< INSERT COIN TO PLAY >'}</span>
+                <span className="relative">{'< INSERT COIN TO PLAY >'}</span>
+              </p>
+            </div>
+          )}
+        </div>
       </div>
-      <p className="text-purple-300 font-['Press_Start_2P'] text-xs mt-4 animate-pulse">
-        INSERT COIN TO PLAY
-      </p>
+
+      {/* Enhanced Blockchain Connection Status */}
+      <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2">
+        <div className="flex items-center gap-3 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-3 rounded-full border border-purple-500/30 shadow-lg">
+          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]`}></div>
+          <p className="font-['Press_Start_2P'] text-sm text-slate-300 relative">
+            <span className="absolute inset-0 blur-[1px] text-white/50">
+              {isConnected ? 'WALLET CONNECTED' : 'CONNECT WALLET'}
+            </span>
+            <span className="relative">
+              {isConnected ? 'WALLET CONNECTED' : 'CONNECT WALLET'}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      {/* Animation Keyframes */}
       <style>{`
         @keyframes scanline {
           0% { transform: translateY(0); }
           100% { transform: translateY(100%); }
+        }
+        @keyframes glow {
+          0%, 100% { opacity: 0.8; }
+          50% { opacity: 1; }
+        }
+        @keyframes float {
+          0% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        @keyframes shine {
+          0% { transform: translateX(-200%) rotate(0deg); }
+          100% { transform: translateX(200%) rotate(0deg); }
+        }
+        @keyframes shine-delayed {
+          0% { transform: translateX(-200%) rotate(0deg); }
+          25% { transform: translateX(-200%) rotate(0deg); }
+          100% { transform: translateX(200%) rotate(0deg); }
+        }
+        @keyframes pulse-border {
+          0%, 100% { border-color: rgba(234, 179, 8, 0.8); }
+          50% { border-color: rgba(234, 179, 8, 0.4); }
+        }
+        @keyframes pulse-ring {
+          0% { transform: scale(0.95); opacity: 0.5; }
+          50% { transform: scale(1.05); opacity: 0.3; }
+          100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        .arcade-panel {
+          position: relative;
+          overflow: hidden;
+        }
+        .arcade-panel::before {
+          content: '';
+          position: absolute;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          background: linear-gradient(
+            45deg,
+            transparent 0%,
+            rgba(168, 85, 247, 0.1) 50%,
+            transparent 100%
+          );
+          animation: shine 3s infinite linear;
+          pointer-events: none;
+        }
+        .animate-shine {
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.2) 50%,
+            transparent 100%
+          );
+          animation: shine 3s infinite linear;
+          pointer-events: none;
+        }
+        .animate-shine-delayed {
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%
+          );
+          animation: shine-delayed 4s infinite linear;
+          pointer-events: none;
+        }
+        .animate-float {
+          animation: float 3s ease-in-out infinite;
+        }
+        .animate-pulse-ring {
+          animation: pulse-ring 3s ease-in-out infinite;
+        }
+        .animate-pulse-border {
+          animation: pulse-border 2s ease-in-out infinite;
+        }
+        .neon-text {
+          text-shadow: 0 0 5px rgba(168, 85, 247, 0.8),
+                     0 0 10px rgba(168, 85, 247, 0.5),
+                     0 0 15px rgba(168, 85, 247, 0.3);
         }
       `}</style>
     </div>
