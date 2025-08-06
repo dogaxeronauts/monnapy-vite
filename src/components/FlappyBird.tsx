@@ -398,7 +398,15 @@ const FlappyBTCChart: React.FC = () => {
         if (blinkRate) {
           ctx.fillStyle = "#ffffff";
           ctx.font = "16px 'Press Start 2P', monospace";
-          ctx.fillText("PRESS SPACE TO START", GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("PRESS SPACE TO START", GAME_WIDTH / 2, GAME_HEIGHT / 2);
+
+          // Add a pulsing glow effect
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = "#4c1d95";
+          ctx.fillText("PRESS SPACE TO START", GAME_WIDTH / 2, GAME_HEIGHT / 2);
+          ctx.globalAlpha = 1.0;
         }
       }
     };
@@ -480,7 +488,7 @@ const FlappyBTCChart: React.FC = () => {
         // Candle collision with shield check
         for (const c of candlesRef.current) {
           const hitX = BIRD_X + BIRD_SIZE/2 > c.x && BIRD_X - BIRD_SIZE/2 < c.x + c.width;
-          const hitY = birdYRef.current < c.low || birdYRef.current > c.high;
+          const hitY = birdYRef.current + BIRD_SIZE/2 < c.low || birdYRef.current - BIRD_SIZE/2 > c.high;
           if (hitX && hitY) {
             if ((activeEffectsRef.current.shield?.until ?? 0) > currentTime) {
               // Remove the candle instead of game over when shielded
@@ -488,6 +496,7 @@ const FlappyBTCChart: React.FC = () => {
               setCombo(prev => prev + 1);
             } else {
               setGameOver(true);
+              return; // Stop game loop immediately when game over
             }
           }
         }
@@ -635,7 +644,7 @@ const FlappyBTCChart: React.FC = () => {
 
         {/* NFT Mint Button - Positioned at top when available */}
         {gameOver && score > 100 && (
-          <div className="absolute left-1/2 transform -translate-x-1/2 -top-24">
+          <div className="fixed left-1/2 transform -translate-x-1/2 z-50" style={{ top: '70%' }}>
             <div className="relative animate-float">
               {/* Enhanced glow effect background */}
               <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
@@ -666,7 +675,7 @@ const FlappyBTCChart: React.FC = () => {
             </div>
             
             {/* Enhanced floating text with glow */}
-            <p className="font-['Press_Start_2P'] text-xs text-yellow-300 mt-4 animate-bounce relative">
+            <p className="font-['Press_Start_2P'] text-xs text-yellow-300 mt-4 animate-bounce relative text-center">
               <span className="absolute inset-0 blur-sm text-yellow-200">Score {score} - Eligible for NFT!</span>
               <span className="relative">Score {score} - Eligible for NFT!</span>
             </p>
