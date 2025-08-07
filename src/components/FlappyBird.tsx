@@ -3,8 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 
-const GAME_WIDTH = 640;
-const GAME_HEIGHT = 800;
+const GAME_WIDTH = 800;
+const GAME_HEIGHT = 600;
 const BIRD_X = 120;
 const BIRD_SIZE = 24; // Increased bird size
 const GROUND_HEIGHT = 80;
@@ -58,8 +58,89 @@ const FlappyBTCChart: React.FC = () => {
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
   const [combo, setCombo] = useState(0);
-  const { isConnected } = useAccount();
+  const [highScore, setHighScore] = useState(0);
+  const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
+  const [isOwner, setIsOwner] = useState(false);
+  const [lastTier, setLastTier] = useState<string>('NOT_ELIGIBLE');
+  const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
+  const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
+
+  // Save player score and check for new high score
+  const savePlayerScore = (finalScore: number) => {
+    if (!address) return;
+    
+    // Update player scores in localStorage
+    const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+    const currentPlayerBest = savedScores[address] || 0;
+    
+    if (finalScore > currentPlayerBest) {
+      savedScores[address] = finalScore;
+      localStorage.setItem('playerScores', JSON.stringify(savedScores));
+      setPlayerScores(savedScores);
+      
+      // Update high score if this is the highest overall
+      const allScores = Object.values(savedScores) as number[];
+      const newHighScore = Math.max(...allScores);
+      if (newHighScore > highScore) {
+        setHighScore(newHighScore);
+        localStorage.setItem('highScore', newHighScore.toString());
+      }
+    }
+  };
+
+  // Load saved scores when component mounts or address changes
+  useEffect(() => {
+    const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+    const savedHighScore = parseInt(localStorage.getItem('highScore') || '0');
+    
+    setPlayerScores(savedScores);
+    setHighScore(savedHighScore);
+
+    // Check if current address is contract owner
+    const checkOwner = async () => {
+      if (!address || !isConnected) {
+        setIsOwner(false);
+        return;
+      }
+
+      try {
+        const abi = ["function owner() external view returns (address)"];
+        const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const contract = new ethers.Contract(contractAddress, abi, provider);
+        
+        const owner = await contract.owner();
+        setIsOwner(address.toLowerCase() === owner.toLowerCase());
+      } catch (error) {
+        console.error("Error checking owner:", error);
+        setIsOwner(false);
+      }
+    };
+
+    if (isConnected && address) {
+      checkOwner();
+    }
+  }, [address, isConnected]);
+
+  // Get current player's best score
+  const getCurrentPlayerBest = () => {
+    if (!address) return 0;
+    return playerScores[address] || 0;
+  };
+
+  // Get NFT tier based on score (updated for contract tiers)
+  const getNFTTier = (score: number) => {
+    if (score >= 20000) return { tier: 'MYTHIC', color: '#FF00FF', requirement: 20000 };      // Tier 0
+    if (score >= 17500) return { tier: 'LEGENDARY', color: '#FFD700', requirement: 17500 };   // Tier 1
+    if (score >= 15000) return { tier: 'DIAMOND', color: '#B9F2FF', requirement: 15000 };     // Tier 2
+    if (score >= 12500) return { tier: 'PLATINUM', color: '#E5E4E2', requirement: 12500 };    // Tier 3
+    if (score >= 10000) return { tier: 'GOLD', color: '#FFD700', requirement: 10000 };        // Tier 4
+    if (score >= 7500) return { tier: 'SILVER', color: '#C0C0C0', requirement: 7500 };        // Tier 5
+    if (score >= 4500) return { tier: 'BRONZE', color: '#CD7F32', requirement: 4500 };        // Tier 6
+    if (score >= 750) return { tier: 'REGULAR', color: '#10B981', requirement: 750 };         // Tier 7
+    return { tier: 'NOT_ELIGIBLE', color: '#6B7280', requirement: 750 };
+  };
 
   const spawnPowerUp = () => {
     const types: PowerUp['type'][] = ['shield', 'slowTime', 'doublePoints'];
@@ -78,6 +159,8 @@ const FlappyBTCChart: React.FC = () => {
     setGameOver(false);
     setGameStarted(false);
     setCombo(0);
+    setLastTier('NOT_ELIGIBLE');
+    setTierUpgradeTime(0);
     birdYRef.current = GAME_HEIGHT / 2;
     velocityRef.current = 0;
     candlesRef.current = [];
@@ -284,24 +367,79 @@ const FlappyBTCChart: React.FC = () => {
         ctx.fillRect(x + width - 2, y, 2, height); // Right
       };
 
-      // Score display
-      drawRetroPanel(10, 10, 200, 40);
-      ctx.fillStyle = "#fef08a";
-      ctx.font = "20px 'Press Start 2P'";
+      // Enhanced Score display with live updates
+      drawRetroPanel(10, 10, 250, 60);
+      
+      // Main score with pulsing effect for score changes
+      const scoreFlash = Math.sin(Date.now() * 0.02) * 0.3 + 0.7;
+      ctx.fillStyle = `rgb(${254 * scoreFlash}, ${240 * scoreFlash}, ${138})`;
+      ctx.font = "24px 'Press Start 2P'";
       ctx.textAlign = "left";
-      ctx.fillText(`SCORE:${score}`, 20, 37);
+      ctx.fillText(`SCORE: ${score}`, 20, 35);
+      
+      // Current tier indicator
+      if (score >= 750) {
+        const currentTier = getNFTTier(score);
+        ctx.fillStyle = currentTier.color;
+        ctx.font = "12px 'Press Start 2P'";
+        ctx.fillText(`${currentTier.tier}`, 20, 52);
+      } else {
+        ctx.fillStyle = "#6B7280";
+        ctx.font = "12px 'Press Start 2P'";
+        ctx.fillText("NO TIER", 20, 52);
+      }
 
-      // Combo display with flash effect
+      // Enhanced Combo display with flash effect and score bonus info
       if (combo > 0) {
-        drawRetroPanel(GAME_WIDTH - 210, 10, 200, 40);
-        const comboFlash = Math.sin(Date.now() * 0.01) * 0.5 + 0.5;
+        drawRetroPanel(GAME_WIDTH - 280, 10, 270, 60);
+        const comboFlash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
         ctx.fillStyle = `rgb(${255 * comboFlash}, ${180 * comboFlash}, 0)`;
         ctx.font = "20px 'Press Start 2P'";
         ctx.textAlign = "right";
-        ctx.fillText(`COMBOx${combo}`, GAME_WIDTH - 20, 37);
+        ctx.fillText(`COMBO x${combo}`, GAME_WIDTH - 20, 32);
+        
+        // Show combo bonus points
+        ctx.font = "12px 'Press Start 2P'";
+        ctx.fillStyle = "#fef08a";
+        ctx.fillText(`+${combo * 50} BONUS!`, GAME_WIDTH - 20, 50);
       }
 
-      // Draw active effects
+      // Best Score and Progress Tracker (Top Right)
+      const playerBest = getCurrentPlayerBest();
+      if (playerBest > 0) {
+        drawRetroPanel(GAME_WIDTH - 220, 80, 210, 80);
+        
+        // Best score
+        ctx.fillStyle = "#a78bfa";
+        ctx.font = "14px 'Press Start 2P'";
+        ctx.textAlign = "right";
+        ctx.fillText(`BEST: ${playerBest}`, GAME_WIDTH - 10, 100);
+        
+        // Current progress vs best
+        const progress = Math.min((score / playerBest) * 100, 100);
+        ctx.fillStyle = score > playerBest ? "#10b981" : "#ef4444";
+        ctx.font = "12px 'Press Start 2P'";
+        
+        if (score > playerBest) {
+          ctx.fillText("NEW RECORD!", GAME_WIDTH - 10, 115);
+          ctx.fillStyle = "#fef08a";
+          ctx.fillText(`+${score - playerBest}`, GAME_WIDTH - 10, 130);
+        } else {
+          ctx.fillText(`${progress.toFixed(0)}% of best`, GAME_WIDTH - 10, 115);
+          ctx.fillStyle = "#6b7280";
+          ctx.fillText(`Need: ${playerBest - score}`, GAME_WIDTH - 10, 130);
+        }
+        
+        // Eligible tier from best score
+        const bestTier = getNFTTier(playerBest);
+        if (playerBest >= 750) {
+          ctx.fillStyle = bestTier.color;
+          ctx.font = "10px 'Press Start 2P'";
+          ctx.fillText(`ELIGIBLE: ${bestTier.tier}`, GAME_WIDTH - 10, 145);
+        }
+      }
+
+      // Draw active effects (moved to left side)
       const effects = Object.entries(activeEffectsRef.current)
         .filter(([_, effect]) => effect.until > currentTime);
 
@@ -321,15 +459,44 @@ const FlappyBTCChart: React.FC = () => {
             break;
           case 'doublePoints':
             color = "#f59e0b";
-            text = "2X";
+            text = "2X POINTS";
             break;
         }
 
         ctx.font = "12px 'Press Start 2P', monospace";
         ctx.fillStyle = color;
         ctx.textAlign = "left";
-        ctx.fillText(`${text}: ${timeLeft}s`, 10, 30 + index * 20);
+        ctx.fillText(`${text}: ${timeLeft}s`, 10, 80 + index * 20);
       });
+
+      // Tier upgrade notification
+      if (tierUpgradeTime > 0 && (currentTime - tierUpgradeTime) < 3000) {
+        const timeElapsed = currentTime - tierUpgradeTime;
+        const opacity = Math.max(0, 1 - (timeElapsed / 3000));
+        const scale = Math.min(1, timeElapsed / 500);
+        
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        
+        // Background flash
+        ctx.fillStyle = `rgba(255, 215, 0, ${opacity * 0.3})`;
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        
+        // Tier upgrade text
+        const currentTier = getNFTTier(score);
+        ctx.fillStyle = currentTier.color;
+        ctx.font = `${24 * scale}px 'Press Start 2P'`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        
+        const bounceY = Math.sin((timeElapsed / 200) * Math.PI) * 10;
+        ctx.fillText(`TIER UPGRADE!`, GAME_WIDTH / 2, GAME_HEIGHT / 2 - 30 + bounceY);
+        
+        ctx.font = `${18 * scale}px 'Press Start 2P'`;
+        ctx.fillText(`${currentTier.tier} UNLOCKED!`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10 + bounceY);
+        
+        ctx.restore();
+      }
 
       // Game over with retro arcade style
       if (gameOver) {
@@ -367,43 +534,104 @@ const FlappyBTCChart: React.FC = () => {
           ctx.fillRect(boxX + boxWidth + i - 2, boxY - i, 2, boxHeight + i * 2);
         });
 
-        // Score and message display based on score
-        if (score > 100) {
-          // NAD Community success message
+        // Score and message display based on NFT tiers and score
+        const nftTier = getNFTTier(getCurrentPlayerBest()); // Use best score for tier display
+        const playerBest = getCurrentPlayerBest();
+        const isNewRecord = score > playerBest;
+
+        if (playerBest >= 750) {
+          // High score with NFT eligibility - show eligible tier
           const flash = Math.sin(Date.now() * 0.01) > 0;
-          ctx.fillStyle = flash ? "#fef08a" : "#facc15";
-          ctx.font = "bold 32px 'Press Start 2P'";
+          ctx.fillStyle = flash ? nftTier.color : "#facc15";
+          ctx.font = "bold 24px 'Press Start 2P'";
           ctx.textAlign = "center";
-          ctx.fillText("LEGENDARY NAD!", GAME_WIDTH / 2, boxY + 70);
+          ctx.fillText(`${nftTier.tier} TIER ELIGIBLE!`, GAME_WIDTH / 2, boxY + 50);
 
-          // Score display with NAD style
+          // Current game score display
           ctx.font = "20px 'Press Start 2P'";
-          ctx.fillStyle = "#8b5cf6";
-          ctx.fillText(`NAD SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
+          ctx.fillStyle = "#fef08a";
+          ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
 
-          // Blinking mint message
+          // Best score display with tier color
+          ctx.font = "18px 'Press Start 2P'";
+          ctx.fillStyle = nftTier.color;
+          ctx.fillText(`BEST: ${playerBest}`, GAME_WIDTH / 2, boxY + 105);
+
+          // New record indicator
+          if (isNewRecord) {
+            ctx.font = "14px 'Press Start 2P'";
+            ctx.fillStyle = "#fef08a";
+            ctx.fillText("NEW PERSONAL BEST!", GAME_WIDTH / 2, boxY + 125);
+          }
+
+          // NFT eligibility message based on best score
           if (Math.floor(Date.now() / 500) % 2 === 0) {
             ctx.font = "16px 'Press Start 2P'";
             ctx.fillStyle = "#fef08a";
-            ctx.fillText("CLAIM YOUR NAD BADGE!", GAME_WIDTH / 2, boxY + 160);
+            ctx.fillText(`MINT ${nftTier.tier} NFT AVAILABLE!`, GAME_WIDTH / 2, boxY + 150);
+          }
+
+          // Wallet address display
+          if (address) {
+            ctx.font = "12px 'Press Start 2P'";
+            ctx.fillStyle = "#a78bfa";
+            ctx.fillText(`${address.slice(0, 8)}...${address.slice(-6)}`, GAME_WIDTH / 2, boxY + 175);
           }
         } else {
-          // Regular game over for low scores
+          // Low score - encourage to reach NFT tiers
           const flash = Math.sin(Date.now() * 0.01) > 0;
-          ctx.fillStyle = flash ? "#ef4444" : "#dc2626"; // Red tones
-          ctx.font = "bold 32px 'Press Start 2P'";
+          ctx.fillStyle = flash ? "#ef4444" : "#dc2626";
+          ctx.font = "bold 24px 'Press Start 2P'";
           ctx.textAlign = "center";
-          ctx.fillText("NOT NAD ENOUGH!", GAME_WIDTH / 2, boxY + 70);
+          
+          if (playerBest >= 750) {
+            // User has NFT eligibility but current game score is low
+            ctx.fillText("LOW SCORE THIS ROUND!", GAME_WIDTH / 2, boxY + 50);
+            
+            // Current game score
+            ctx.font = "18px 'Press Start 2P'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
+            
+            // Best score with tier info
+            const bestTier = getNFTTier(playerBest);
+            ctx.font = "16px 'Press Start 2P'";
+            ctx.fillStyle = bestTier.color;
+            ctx.fillText(`BEST: ${playerBest} (${bestTier.tier})`, GAME_WIDTH / 2, boxY + 105);
+            
+            // NFT still available message
+            ctx.font = "14px 'Press Start 2P'";
+            ctx.fillStyle = "#fef08a";
+            ctx.fillText(`${bestTier.tier} NFT STILL AVAILABLE!`, GAME_WIDTH / 2, boxY + 130);
+          } else {
+            // User never reached NFT eligibility
+            ctx.fillText("NOT ENOUGH!", GAME_WIDTH / 2, boxY + 50);
+            
+            // Current score display
+            ctx.font = "20px 'Press Start 2P'";
+            ctx.fillStyle = "#ef4444";
+            ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
 
-          // Score display
-          ctx.font = "20px 'Press Start 2P'";
-          ctx.fillStyle = "#8b5cf6";
-          ctx.fillText(`SCORE: ${score}`, GAME_WIDTH / 2, boxY + 120);
+            // Best score if exists
+            if (playerBest > 0) {
+              ctx.font = "16px 'Press Start 2P'";
+              ctx.fillStyle = "#a78bfa";
+              ctx.fillText(`YOUR BEST: ${playerBest}`, GAME_WIDTH / 2, boxY + 105);
+            }
 
-          // Encouraging message
-          ctx.font = "16px 'Press Start 2P'";
-          ctx.fillStyle = "#fef08a";
-          ctx.fillText("NEED 100+ TO JOIN NAD!", GAME_WIDTH / 2, boxY + 160);
+            // New record indicator for low scores too
+            if (isNewRecord && score > 0) {
+              ctx.font = "14px 'Press Start 2P'";
+              ctx.fillStyle = "#fef08a";
+              ctx.fillText("NEW PERSONAL BEST!", GAME_WIDTH / 2, boxY + 125);
+            }
+
+            // Next tier goal
+            const nextTier = getNFTTier(750); // Minimum NFT tier
+            ctx.font = "14px 'Press Start 2P'";
+            ctx.fillStyle = "#fef08a";
+            ctx.fillText(`NEED ${nextTier.requirement}+ FOR NFT!`, GAME_WIDTH / 2, boxY + 150);
+          }
         }
         
         // Continue prompt
@@ -463,7 +691,23 @@ const FlappyBTCChart: React.FC = () => {
           .map((c) => {
             if (!c.passed && c.x + c.width < BIRD_X) {
               c.passed = true;
-              setScore((prev) => prev + 100);
+              // Check if double points is active
+              const hasDoublePoints = (activeEffectsRef.current.doublePoints?.until ?? 0) > currentTime;
+              const points = hasDoublePoints ? 200 : 100;
+              setScore((prev) => {
+                const newScore = prev + points;
+                
+                // Check for tier upgrade
+                const currentTier = getNFTTier(newScore);
+                const previousTier = getNFTTier(prev);
+                
+                if (currentTier.tier !== previousTier.tier && newScore >= 750) {
+                  setLastTier(previousTier.tier);
+                  setTierUpgradeTime(Date.now());
+                }
+                
+                return newScore;
+              });
             }
             return { ...c, x: c.x - 3 };
           })
@@ -512,9 +756,16 @@ const FlappyBTCChart: React.FC = () => {
             if ((activeEffectsRef.current.shield?.until ?? 0) > currentTime) {
               // Remove the candle instead of game over when shielded
               candlesRef.current = candlesRef.current.filter(candle => candle !== c);
-              setCombo(prev => prev + 1);
+              setCombo(prev => {
+                const newCombo = prev + 1;
+                // Add combo bonus points
+                setScore(currentScore => currentScore + (newCombo * 50));
+                return newCombo;
+              });
             } else {
               setGameOver(true);
+              // Save player score when game ends
+              savePlayerScore(score);
               return; // Stop game loop immediately when game over
             }
           }
@@ -529,9 +780,16 @@ const FlappyBTCChart: React.FC = () => {
             if ((activeEffectsRef.current.shield?.until ?? 0) > currentTime) {
               // Remove the rug pull instead of game over when shielded
               rugPullsRef.current = rugPullsRef.current.filter(rug => rug !== r);
-              setCombo(prev => prev + 1);
+              setCombo(prev => {
+                const newCombo = prev + 1;
+                // Add combo bonus points
+                setScore(currentScore => currentScore + (newCombo * 50));
+                return newCombo;
+              });
             } else {
               setGameOver(true);
+              // Save player score when game ends
+              savePlayerScore(score);
             }
           }
         }
@@ -542,6 +800,8 @@ const FlappyBTCChart: React.FC = () => {
            birdYRef.current < BIRD_SIZE/2)
         ) {
           setGameOver(true);
+          // Save player score when game ends
+          savePlayerScore(score);
         }
       }
 
@@ -554,9 +814,107 @@ const FlappyBTCChart: React.FC = () => {
       cancelAnimationFrame(animationRef.current!);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [gameOver, gameStarted]);
+  }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address, playerScores]); // Added address and playerScores for live updates
 
   const mintNFT = async () => {
+    if (!isConnected || !walletClient || !address) {
+      alert("Please connect your wallet first!");
+      return;
+    }
+
+    try {
+      const currentPlayerBest = getCurrentPlayerBest();
+      const nftTier = getNFTTier(currentPlayerBest);
+      
+      // Security check: User can only mint their exact tier based on their best score
+      if (currentPlayerBest < 750) {
+        alert("Your best score is too low to mint any NFT! Need at least 750 points.");
+        return;
+      }
+
+      // Contract ABI with tier-based minting
+      const abi = [
+        "function mint(uint256 tier) external payable",
+        "function scoreOf(address user) external view returns (uint256)",
+        "function tiers(uint256 tier) external view returns (uint256 price, uint16 totalSupply, uint16 maxSupply, uint16 startingIndex, uint8 mintsPerAddress, uint256 requiredScore)",
+        "function saleIsActive() external view returns (bool)"
+      ];
+      
+      const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+
+      // Check if sale is active
+      const saleActive = await contract.saleIsActive();
+      if (!saleActive) {
+        alert("NFT sale is not currently active!");
+        return;
+      }
+
+      // Get tier number based on user's BEST score (not current game score)
+      const tierNumber = getTierNumber(currentPlayerBest);
+      
+      // Double check: Verify user's on-chain score matches their local best
+      const onChainScore = await contract.scoreOf(address);
+      const tierInfo = await contract.tiers(tierNumber);
+      const requiredScore = tierInfo.requiredScore;
+
+      // Extra security: Ensure user can only mint the tier they are eligible for
+      if (Number(onChainScore) < Number(requiredScore)) {
+        alert(`Your on-chain score (${onChainScore}) is too low for ${nftTier.tier} tier. Required: ${requiredScore}. Please wait for score sync or contact admin.`);
+        return;
+      }
+
+      // Final security check: User cannot mint higher tiers than they deserve
+      if (currentPlayerBest < requiredScore) {
+        alert(`You cannot mint ${nftTier.tier} tier! Your best score (${currentPlayerBest}) is below the requirement (${requiredScore}).`);
+        return;
+      }
+
+      // Get price (0.1 ETH for all tiers)
+      const price = tierInfo.price;
+
+      // Mint NFT for the exact tier user deserves
+      const tx = await contract.mint(tierNumber, { value: price });
+      await tx.wait();
+      
+      alert(`${nftTier.tier} NFT minted successfully! 🎉 (Based on your best score: ${currentPlayerBest})`);
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message.includes("Your score is too low")) {
+          alert("Your on-chain score is too low for this tier. Please wait for score sync.");
+        } else if (err.message.includes("Tier sold out")) {
+          alert("This tier is sold out!");
+        } else if (err.message.includes("Mint limit reached")) {
+          alert("You have reached the mint limit for this tier!");
+        } else if (err.message.includes("Send exactly")) {
+          alert("Incorrect payment amount!");
+        } else {
+          alert("Error minting NFT: " + err.message);
+        }
+      } else {
+        alert("Error minting NFT: " + String(err));
+      }
+    }
+  };
+
+  // Convert score to tier number for contract
+  const getTierNumber = (score: number) => {
+    if (score >= 20000) return 0; // Mythic
+    if (score >= 17500) return 1; // Legendary  
+    if (score >= 15000) return 2; // Diamond
+    if (score >= 12500) return 3; // Platinum
+    if (score >= 10000) return 4; // Gold
+    if (score >= 7500) return 5;  // Silver
+    if (score >= 4500) return 6;  // Bronze
+    if (score >= 750) return 7;   // Regular
+    return 7; // Default to Regular
+  };
+
+  // Admin function to batch update scores on-chain
+  const batchUpdateScores = async () => {
     if (!isConnected || !walletClient) {
       alert("Please connect your wallet first!");
       return;
@@ -564,35 +922,55 @@ const FlappyBTCChart: React.FC = () => {
 
     try {
       const abi = [
-        "function saveScore(uint256 score) external",
+        "function batchSetScores(address[] calldata users, uint256[] calldata scores) external",
+        "function owner() external view returns (address)"
       ];
+      
       const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
-
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      const tx = await contract.saveScore(score);
+      // Check if caller is owner
+      const owner = await contract.owner();
+      if (address?.toLowerCase() !== owner.toLowerCase()) {
+        alert("Only contract owner can update scores!");
+        return;
+      }
+
+      // Get all player scores from localStorage
+      const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+      const addresses = Object.keys(savedScores);
+      const scores = Object.values(savedScores);
+
+      if (addresses.length === 0) {
+        alert("No scores to update!");
+        return;
+      }
+
+      // Update scores on-chain
+      const tx = await contract.batchSetScores(addresses, scores);
       await tx.wait();
-      alert("NFT minted successfully! 🎉");
+      
+      alert(`Successfully updated ${addresses.length} player scores on-chain! 🎉`);
     } catch (err) {
       if (err instanceof Error) {
-        alert("Error minting NFT: " + err.message);
+        alert("Error updating scores: " + err.message);
       } else {
-        alert("Error minting NFT: " + String(err));
+        alert("Error updating scores: " + String(err));
       }
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0718] flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0718] flex flex-col items-center justify-center relative overflow-hidden p-4">
       {/* Background Effects */}
       <div className="fixed inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMCAzNmMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMTgtMThjMy4zMTQgMCA2LTIuNjg2IDYtNnMtMi42ODYtNi02LTYtNiAyLjY4Ni02IDYgMi42ODYgNiA2IDZ6Ii8+PC9nPjwvc3ZnPg==')] opacity-5"></div>
 
       {/* Arcade Cabinet Style Container */}
-      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm transform -translate-y-8">
+      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-6 md:p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-6xl mx-auto">
         {/* 3D Spinning Monad Logo */}
-        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-20">
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-30">
           <div className="scene">
             <div className="logo-wrapper">
               <img src="/monad_logo.png" alt="Monad Logo Front" className="logo-front" />
@@ -616,7 +994,7 @@ const FlappyBTCChart: React.FC = () => {
         </div>
 
         {/* Game Screen Container with Enhanced CRT Effect */}
-        <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner">
+        <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner w-full">
           {/* CRT Screen Effects */}
           <div className="absolute inset-0 pointer-events-none z-10">
             <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black opacity-20"></div>
@@ -637,15 +1015,16 @@ const FlappyBTCChart: React.FC = () => {
             height={GAME_HEIGHT}
             onClick={flap}
             tabIndex={0}
-            className="bg-slate-900 outline-none"
+            className="bg-slate-900 outline-none w-full h-auto max-w-full"
             style={{
-              imageRendering: 'pixelated'
+              imageRendering: 'pixelated',
+              aspectRatio: `${GAME_WIDTH}/${GAME_HEIGHT}`
             }}
           />
         </div>
 
         {/* Game Controls and Stats with Arcade Style */}
-        <div className="mt-8 grid grid-cols-2 gap-6">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
             <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
             <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">CONTROLS</p>
@@ -661,48 +1040,100 @@ const FlappyBTCChart: React.FC = () => {
           
           <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
             <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">HIGHSCORE</p>
-            <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{score}</p>
+            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER BEST</p>
+            <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{getCurrentPlayerBest()}</p>
+            {address && (
+              <p className="text-xs text-purple-200 mt-1 relative z-10 break-all">
+                {address.slice(0, 6)}...{address.slice(-4)}
+              </p>
+            )}
           </div>
+
+          {/* Admin Panel - Only visible to contract owner */}
+          {isOwner && (
+            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-red-800 to-red-900 p-4 border-2 border-red-500/30">
+              <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-transparent"></div>
+              <p className="font-['Press_Start_2P'] text-sm text-red-300 mb-2 relative z-10">ADMIN PANEL</p>
+              <button
+                onClick={batchUpdateScores}
+                className="px-3 py-2 bg-red-900/80 rounded border border-red-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-red-800/80 transition-colors relative z-10"
+              >
+                SYNC SCORES
+              </button>
+              <p className="text-xs text-red-200 mt-1 relative z-10">
+                Update on-chain scores
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* NFT Mint Button - Positioned at top when available */}
-        {gameOver && score > 100 && (
-          <div className="fixed left-1/2 transform -translate-x-1/2 z-50" style={{ top: '70%' }}>
+        {/* NFT Mint Button - Shows user's eligible tier based on their best score */}
+        {gameOver && getCurrentPlayerBest() >= 750 && (
+          <div className="fixed left-1/2 transform -translate-x-1/2 z-40" style={{ top: '70%' }}>
             <div className="relative animate-float">
               {/* Enhanced glow effect background */}
               <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
               
-              {/* Pulsing ring */}
-              <div className="absolute -inset-4 bg-gradient-to-r from-yellow-400 via-yellow-200 to-yellow-400 rounded-2xl opacity-30 animate-pulse-ring"></div>
+              {/* Pulsing ring with tier color based on user's best score */}
+              <div 
+                className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring"
+                style={{ 
+                  background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}40, ${getNFTTier(getCurrentPlayerBest()).color})` 
+                }}
+              ></div>
               
-              {/* Animated border */}
-              <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 via-yellow-200 to-yellow-400 rounded-xl animate-pulse-border"></div>
+              {/* Animated border with tier color based on user's best score */}
+              <div 
+                className="absolute inset-0 rounded-xl animate-pulse-border"
+                style={{ 
+                  background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}80, ${getNFTTier(getCurrentPlayerBest()).color})` 
+                }}
+              ></div>
               
               {/* Main button with enhanced effects */}
               <button
                 onClick={mintNFT}
-                className="relative px-8 py-4 bg-gradient-to-b from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 rounded-xl 
-                          font-['Press_Start_2P'] text-lg text-white shadow-lg hover:shadow-yellow-500/50 
-                          transition-all duration-300 border-2 border-yellow-700 transform hover:scale-105 
+                className="relative px-8 py-4 rounded-xl font-['Press_Start_2P'] text-lg text-white shadow-lg 
+                          transition-all duration-300 border-2 transform hover:scale-105 
                           z-10 min-w-[240px] overflow-hidden"
+                style={{
+                  background: `linear-gradient(to bottom, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}CC)`,
+                  borderColor: getNFTTier(getCurrentPlayerBest()).color,
+                  boxShadow: `0 0 20px ${getNFTTier(getCurrentPlayerBest()).color}50`
+                }}
               >
                 {/* Multiple animated shine effects */}
-                <span className="absolute inset-0 bg-gradient-to-r from-yellow-400/0 via-yellow-400/30 to-yellow-400/0 animate-shine"></span>
-                <span className="absolute inset-0 bg-gradient-to-r from-yellow-400/0 via-yellow-400/20 to-yellow-400/0 animate-shine-delayed"></span>
+                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
+                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 animate-shine-delayed"></span>
                 
                 {/* Pixelated texture overlay */}
                 <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-20"></div>
                 
-                <span className="relative">MINT NFT 🏆</span>
+                <span className="relative">MINT {getNFTTier(getCurrentPlayerBest()).tier} NFT 🏆</span>
               </button>
             </div>
             
-            {/* Enhanced floating text with glow */}
-            <p className="font-['Press_Start_2P'] text-xs text-yellow-300 mt-4 animate-bounce relative text-center">
-              <span className="absolute inset-0 blur-sm text-yellow-200">Score {score} - Eligible for NFT!</span>
-              <span className="relative">Score {score} - Eligible for NFT!</span>
+            {/* Enhanced floating text with glow - shows user's eligible tier */}
+            <p className="font-['Press_Start_2P'] text-xs mt-4 animate-bounce relative text-center" style={{ color: getNFTTier(getCurrentPlayerBest()).color }}>
+              <span className="absolute inset-0 blur-sm" style={{ color: getNFTTier(getCurrentPlayerBest()).color }}>
+                {getNFTTier(getCurrentPlayerBest()).tier} Tier - Best Score: {getCurrentPlayerBest()}
+              </span>
+              <span className="relative">
+                {getNFTTier(getCurrentPlayerBest()).tier} Tier - Best Score: {getCurrentPlayerBest()}
+              </span>
             </p>
+            
+            {/* Security notice */}
+            <p className="font-['Press_Start_2P'] text-xs text-purple-300 mt-2 text-center opacity-80">
+              Based on your highest score
+            </p>
+            
+            {/* Wallet address display */}
+            {address && (
+              <p className="font-['Press_Start_2P'] text-xs text-purple-300 mt-1 text-center">
+                {address.slice(0, 8)}...{address.slice(-6)}
+              </p>
+            )}
           </div>
         )}
 
@@ -720,10 +1151,10 @@ const FlappyBTCChart: React.FC = () => {
       </div>
 
       {/* Enhanced Blockchain Connection Status */}
-      <div className="absolute -bottom-20 left-1/2 transform -translate-x-1/2">
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
         <div className="flex items-center gap-3 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-3 rounded-full border border-purple-500/30 shadow-lg">
           <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]`}></div>
-          <p className="font-['Press_Start_2P'] text-sm text-slate-300 relative">
+          <p className="font-['Press_Start_2P'] text-xs md:text-sm text-slate-300 relative">
             <span className="absolute inset-0 blur-[1px] text-white/50">
               {isConnected ? 'WALLET CONNECTED' : 'CONNECT WALLET'}
             </span>
