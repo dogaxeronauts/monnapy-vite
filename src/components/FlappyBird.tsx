@@ -591,17 +591,22 @@ const FlappyBTCChart: React.FC = () => {
 
       {/* Arcade Cabinet Style Container */}
       <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm transform -translate-y-8">
-        {/* Decorative Top Light */}
-        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-yellow-300 to-yellow-500 animate-pulse shadow-[0_0_20px_rgba(234,179,8,0.5)]"></div>
+        {/* 3D Spinning Monad Logo */}
+        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-20">
+          <div className="scene">
+            <div className="logo-wrapper">
+              <img src="/monad_logo.png" alt="Monad Logo Front" className="logo-front" />
+              <img src="/monad_logo.png" alt="Monad Logo Back" className="logo-back" />
+            </div>
+          </div>
         </div>
 
         {/* Game Title with Neon Effect */}
         <div className="text-center mb-8 relative">
           <h1 className="font-['Press_Start_2P'] text-3xl relative">
-            <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONNAPY</span>
+            <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONAPY</span>
             <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-300">
-              MONNAPY
+              MONAPY
             </span>
           </h1>
           <p className="font-['Press_Start_2P'] text-sm mt-2 relative">
@@ -760,6 +765,42 @@ const FlappyBTCChart: React.FC = () => {
           0% { transform: scale(0.95); opacity: 0.5; }
           50% { transform: scale(1.05); opacity: 0.3; }
           100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        @keyframes spinY {
+          from { transform: rotateY(0deg); }
+          to { transform: rotateY(360deg); }
+        }
+        
+        /* 3D Logo Animation Styles */
+        .scene {
+          width: 120px;
+          height: 120px;
+          perspective: 800px;
+          margin: 0 auto;
+        }
+        
+        .logo-wrapper {
+          width: 100%;
+          height: 100%;
+          position: relative;
+          transform-style: preserve-3d;
+          animation: spinY 4s linear infinite;
+        }
+        
+        .logo-wrapper img {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 80px;
+          height: 80px;
+          margin: -40px 0 0 -40px;
+          backface-visibility: hidden;
+          border-radius: 50%;
+          box-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+        }
+        
+        .logo-back {
+          transform: rotateY(180deg);
         }
         .arcade-panel {
           position: relative;
