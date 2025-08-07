@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
+import { GAME_CONFIG } from "../config";
 
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
@@ -106,7 +107,7 @@ const FlappyBTCChart: React.FC = () => {
 
       try {
         const abi = ["function owner() external view returns (address)"];
-        const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
+        const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
         const provider = new ethers.BrowserProvider(window.ethereum);
         const contract = new ethers.Contract(contractAddress, abi, provider);
         
@@ -816,6 +817,35 @@ const FlappyBTCChart: React.FC = () => {
     };
   }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address, playerScores]); // Added address and playerScores for live updates
 
+  // Function to get game signature from backend
+  const getGameSignature = async (playerAddress: string, tierNumber: number, finalScore: number) => {
+    try {
+      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-mint-signature`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playerAddress,
+          tierNumber,
+          finalScore,
+          gameSessionId: Date.now(), // Unique session identifier
+          timestamp: Math.floor(Date.now() / 1000)
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Backend error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result.signature;
+    } catch (error) {
+      console.error('Failed to get game signature:', error);
+      throw new Error('Failed to get game authorization. Please try again.');
+    }
+  };
+
   const mintNFT = async () => {
     if (!isConnected || !walletClient || !address) {
       alert("Please connect your wallet first!");
@@ -832,15 +862,16 @@ const FlappyBTCChart: React.FC = () => {
         return;
       }
 
-      // Contract ABI with tier-based minting
+      // Contract ABI with signature-based minting
       const abi = [
-        "function mint(uint256 tier) external payable",
+        "function mint(uint256 tier, bytes calldata signature) external payable",
         "function scoreOf(address user) external view returns (uint256)",
-        "function tiers(uint256 tier) external view returns (uint256 price, uint16 totalSupply, uint16 maxSupply, uint16 startingIndex, uint8 mintsPerAddress, uint256 requiredScore)",
-        "function saleIsActive() external view returns (bool)"
+        "function tiers(uint256 tier) external view returns (uint256 price, uint16 totalSupply, uint16 maxSupply, uint16 startingIndex, uint8 mintsPerAddress, uint256 minScore, uint256 maxScore)",
+        "function saleIsActive() external view returns (bool)",
+        "function gameSigner() external view returns (address)"
       ];
       
-      const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
+      const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
 
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
@@ -859,38 +890,53 @@ const FlappyBTCChart: React.FC = () => {
       // Double check: Verify user's on-chain score matches their local best
       const onChainScore = await contract.scoreOf(address);
       const tierInfo = await contract.tiers(tierNumber);
-      const requiredScore = tierInfo.requiredScore;
+      const minScore = tierInfo.minScore;
+      const maxScore = tierInfo.maxScore;
 
       // Extra security: Ensure user can only mint the tier they are eligible for
-      if (Number(onChainScore) < Number(requiredScore)) {
-        alert(`Your on-chain score (${onChainScore}) is too low for ${nftTier.tier} tier. Required: ${requiredScore}. Please wait for score sync or contact admin.`);
+      if (Number(onChainScore) < Number(minScore)) {
+        alert(`Your on-chain score (${onChainScore}) is too low for ${nftTier.tier} tier. Required: ${minScore}. Please wait for score sync or contact admin.`);
         return;
       }
 
       // Final security check: User cannot mint higher tiers than they deserve
-      if (currentPlayerBest < requiredScore) {
-        alert(`You cannot mint ${nftTier.tier} tier! Your best score (${currentPlayerBest}) is below the requirement (${requiredScore}).`);
+      if (currentPlayerBest < minScore || currentPlayerBest >= maxScore) {
+        alert(`You cannot mint ${nftTier.tier} tier! Your best score (${currentPlayerBest}) is not in the valid range (${minScore}-${maxScore-1}).`);
+        return;
+      }
+
+      // Get game signature from backend - THIS IS THE KEY SECURITY FEATURE
+      alert("Getting game authorization...");
+      const gameSignature = await getGameSignature(address, tierNumber, currentPlayerBest);
+      
+      if (!gameSignature) {
+        alert("Failed to get game authorization. You can only mint through the game!");
         return;
       }
 
       // Get price (0.1 ETH for all tiers)
       const price = tierInfo.price;
 
-      // Mint NFT for the exact tier user deserves
-      const tx = await contract.mint(tierNumber, { value: price });
+      // Mint NFT with signature - only possible through game backend
+      alert("Minting NFT with game authorization...");
+      const tx = await contract.mint(tierNumber, gameSignature, { value: price });
       await tx.wait();
       
       alert(`${nftTier.tier} NFT minted successfully! 🎉 (Based on your best score: ${currentPlayerBest})`);
     } catch (err) {
       if (err instanceof Error) {
-        if (err.message.includes("Your score is too low")) {
-          alert("Your on-chain score is too low for this tier. Please wait for score sync.");
+        if (err.message.includes("Invalid or missing game signature")) {
+          alert("Invalid game authorization! You can only mint through the official game.");
+        } else if (err.message.includes("Score not in this tier")) {
+          alert("Your score doesn't match this tier requirements.");
         } else if (err.message.includes("Tier sold out")) {
           alert("This tier is sold out!");
         } else if (err.message.includes("Mint limit reached")) {
           alert("You have reached the mint limit for this tier!");
         } else if (err.message.includes("Send exactly")) {
           alert("Incorrect payment amount!");
+        } else if (err.message.includes("Failed to get game authorization")) {
+          alert(err.message);
         } else {
           alert("Error minting NFT: " + err.message);
         }
@@ -926,7 +972,7 @@ const FlappyBTCChart: React.FC = () => {
         "function owner() external view returns (address)"
       ];
       
-      const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
+      const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
