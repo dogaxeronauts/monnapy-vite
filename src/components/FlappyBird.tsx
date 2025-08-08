@@ -4,15 +4,15 @@ import { useAccount, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { GAME_CONFIG } from "../config";
 
-const GAME_WIDTH = 800;
-const GAME_HEIGHT = 600;
-const BIRD_X = 120;
-const BIRD_SIZE = 24; // Increased bird size
-const GROUND_HEIGHT = 80;
+const GAME_WIDTH = 1200; // Wider for cinematic experience
+const GAME_HEIGHT = 580; // Reduced height for better viewport fit
+const BIRD_X = 160; // Adjusted proportionally
+const BIRD_SIZE = 60; // Increased bird size for better visibility
+const GROUND_HEIGHT = 90; // Increased proportionally
 const GRAVITY = 0.25;
 const JUMP_FORCE = -8;
 const CANDLE_INTERVAL = 1800;
-const MIN_GAP = 160;
+const MIN_GAP = 180; // Increased gap for larger screen
 const PIXEL_SIZE = 4;
 const POWER_UP_INTERVAL = 10000; // Power-up spawn interval in ms
 const POWER_UP_DURATION = 5000; // Power-up effect duration in ms
@@ -83,6 +83,22 @@ const FlappyBTCChart: React.FC = () => {
     bestCombo: 0
   });
 
+  // New refs for visual effects
+  const particlesRef = useRef<Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    maxLife: number;
+    color: string;
+    size: number;
+  }>>([]);
+  const screenShakeRef = useRef({ x: 0, y: 0, intensity: 0, duration: 0 });
+  const lastJumpTimeRef = useRef(0);
+  const hedgehogImageRef = useRef<HTMLImageElement | null>(null);
+  const imageLoadedRef = useRef(false);
+
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
@@ -126,6 +142,24 @@ const FlappyBTCChart: React.FC = () => {
     setHighScore(savedHighScore);
   }, [address, isConnected]);
 
+  // Load hedgehog image
+  useEffect(() => {
+    const loadHedgehogImage = () => {
+      const img = new Image();
+      img.onload = () => {
+        hedgehogImageRef.current = img;
+        imageLoadedRef.current = true;
+      };
+      img.onerror = () => {
+        console.error('Failed to load hedgehog image');
+        imageLoadedRef.current = false;
+      };
+      img.src = '/hedgehog.png';
+    };
+
+    loadHedgehogImage();
+  }, []);
+
   // Get current player's best score
   const getCurrentPlayerBest = () => {
     if (!address) return 0;
@@ -143,6 +177,54 @@ const FlappyBTCChart: React.FC = () => {
     if (score >= 4500) return { tier: 'BRONZE', color: '#CD7F32', requirement: 4500, enumValue: 2 };        // Tier.Bronze
     if (score >= 750) return { tier: 'REGULAR', color: '#10B981', requirement: 750, enumValue: 1 };         // Tier.Regular
     return { tier: 'NONE', color: '#6B7280', requirement: 750, enumValue: 0 };                              // Tier.None
+  };
+
+  // Visual effects functions
+  const addScreenShake = (intensity: number, duration: number) => {
+    screenShakeRef.current = { 
+      x: 0, 
+      y: 0, 
+      intensity, 
+      duration: Date.now() + duration 
+    };
+  };
+
+  const createParticles = (x: number, y: number, count: number, color: string, spread = 50) => {
+    for (let i = 0; i < count; i++) {
+      particlesRef.current.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * spread,
+        vy: (Math.random() - 0.5) * spread,
+        life: 1,
+        maxLife: Math.random() * 30 + 30,
+        color,
+        size: Math.random() * 4 + 2
+      });
+    }
+  };
+
+  const updateParticles = () => {
+    particlesRef.current = particlesRef.current.filter(particle => {
+      particle.x += particle.vx;
+      particle.y += particle.vy;
+      particle.vy += 0.5; // gravity
+      particle.life -= 1;
+      return particle.life > 0;
+    });
+  };
+
+  const updateScreenShake = () => {
+    const currentTime = Date.now();
+    if (screenShakeRef.current.duration > currentTime) {
+      const remaining = (screenShakeRef.current.duration - currentTime) / 1000;
+      const intensity = screenShakeRef.current.intensity * remaining;
+      screenShakeRef.current.x = (Math.random() - 0.5) * intensity;
+      screenShakeRef.current.y = (Math.random() - 0.5) * intensity;
+    } else {
+      screenShakeRef.current.x = 0;
+      screenShakeRef.current.y = 0;
+    }
   };
 
   const spawnPowerUp = () => {
@@ -251,6 +333,10 @@ const FlappyBTCChart: React.FC = () => {
       gameStartTimeRef.current = Date.now();
     }
     
+    // Create jump particles
+    createParticles(BIRD_X, birdYRef.current, 8, "#fef08a", 30);
+    lastJumpTimeRef.current = Date.now();
+    
     // Apply jump boost effect
     const hasJumpBoost = (activeEffectsRef.current.jumpBoost?.until ?? 0) > Date.now();
     const jumpForce = hasJumpBoost ? JUMP_FORCE * 1.3 : JUMP_FORCE;
@@ -314,21 +400,49 @@ const FlappyBTCChart: React.FC = () => {
     };
 
     const draw = () => {
-      ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+      // Apply screen shake
+      updateScreenShake();
+      ctx.save();
+      ctx.translate(screenShakeRef.current.x, screenShakeRef.current.y);
+      
+      ctx.clearRect(-screenShakeRef.current.x, -screenShakeRef.current.y, GAME_WIDTH + Math.abs(screenShakeRef.current.x * 2), GAME_HEIGHT + Math.abs(screenShakeRef.current.y * 2));
 
-      // Background with fixed stars
+      // Background with parallax effect
       ctx.fillStyle = "#0f172a";
       ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
       
-      // Add fixed stars using pseudo-random positions
-      const starPositions = Array.from({ length: 50 }, (_, i) => ({
+      // Add moving background elements for depth
+      const time = Date.now() * 0.0001;
+      for (let i = 0; i < 3; i++) {
+        const layer = i + 1;
+        const speed = layer * 0.2;
+        const offset = (time * speed * 100) % (GAME_WIDTH + 100);
+        
+        // Distant mountains/planets
+        ctx.fillStyle = `rgba(75, 85, 99, ${0.1 / layer})`;
+        for (let x = -100; x < GAME_WIDTH + 100; x += 150) {
+          const mountainX = x - offset;
+          if (mountainX > -100 && mountainX < GAME_WIDTH + 100) {
+            const height = 50 + Math.sin((mountainX + i * 50) * 0.01) * 20;
+            ctx.fillRect(mountainX, GAME_HEIGHT - GROUND_HEIGHT - height, 80, height);
+          }
+        }
+      }
+      
+      // Enhanced stars with twinkling effect
+      const starPositions = Array.from({ length: 80 }, (_, i) => ({
         x: (Math.sin(i * 467.5489) * 0.5 + 0.5) * GAME_WIDTH,
-        y: (Math.cos(i * 364.2137) * 0.5 + 0.5) * (GAME_HEIGHT - GROUND_HEIGHT - 20)
+        y: (Math.cos(i * 364.2137) * 0.5 + 0.5) * (GAME_HEIGHT - GROUND_HEIGHT - 20),
+        twinkle: Math.sin(Date.now() * 0.002 + i) * 0.5 + 0.5
       }));
       
-      starPositions.forEach(({x, y}) => {
+      starPositions.forEach(({x, y, twinkle}) => {
         const starSize = Math.random() < 0.2 ? PIXEL_SIZE * 2 : PIXEL_SIZE;
+        const alpha = 0.5 + twinkle * 0.5;
+        ctx.save();
+        ctx.globalAlpha = alpha;
         drawPixelRect(x - starSize/2, y - starSize/2, starSize, starSize, "#fef08a");
+        ctx.restore();
       });
 
       // Get current time once for all animations
@@ -432,19 +546,116 @@ const FlappyBTCChart: React.FC = () => {
         drawPixelRect(r.x - 4, r.y + 2, 8, PIXEL_SIZE, "#fff");
       });
 
-      // Bird (pixelated)
+      // Bird (hedgehog) with enhanced trail effect
       const birdY = birdYRef.current;
-      const birdColors = ["#fef08a", "#facc15", "#eab308"];
+      const rotation = Math.min(Math.max(velocityRef.current * 0.02, -0.5), 0.5);
       
-      // Draw bird body
-      for (let i = 0; i < BIRD_SIZE; i += PIXEL_SIZE) {
-        for (let j = 0; j < BIRD_SIZE; j += PIXEL_SIZE) {
-          const color = birdColors[Math.floor(Math.random() * birdColors.length)];
-          if (Math.sqrt(Math.pow(i - BIRD_SIZE/2, 2) + Math.pow(j - BIRD_SIZE/2, 2)) < BIRD_SIZE/2) {
-            drawPixel(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, color);
+      // Bird trail effect when jumping
+      const timeSinceJump = Date.now() - lastJumpTimeRef.current;
+      if (timeSinceJump < 300 && imageLoadedRef.current && hedgehogImageRef.current) {
+        const trailAlpha = Math.max(0, 1 - timeSinceJump / 300);
+        ctx.save();
+        ctx.globalAlpha = trailAlpha * 0.4;
+        for (let i = 1; i <= 3; i++) {
+          const trailY = birdY + velocityRef.current * i * 1.5;
+          const trailSize = BIRD_SIZE * (1 - i * 0.15);
+          ctx.translate(BIRD_X, trailY);
+          ctx.rotate(rotation * (1 - i * 0.2));
+          ctx.scale(0.8 - i * 0.1, 0.8 - i * 0.1);
+          ctx.drawImage(
+            hedgehogImageRef.current,
+            -trailSize/2,
+            -trailSize/2,
+            trailSize,
+            trailSize
+          );
+        }
+        ctx.restore();
+      }
+      
+      // Draw hedgehog with rotation and animation
+      if (imageLoadedRef.current && hedgehogImageRef.current) {
+        ctx.save();
+        
+        // Add subtle bounce animation
+        const bounceOffset = Math.sin(Date.now() * 0.01) * 2;
+        
+        // Glow effect
+        ctx.shadowColor = "#8B5CF6";
+        ctx.shadowBlur = 12;
+        ctx.globalAlpha = 0.8;
+        
+        // Position and rotate hedgehog
+        ctx.translate(BIRD_X, birdY + bounceOffset);
+        ctx.rotate(rotation);
+        
+        // Scale slightly based on velocity for dynamic effect
+        const scale = 1 + Math.abs(velocityRef.current) * 0.002;
+        ctx.scale(scale, scale);
+        
+        // Draw hedgehog image
+        ctx.drawImage(
+          hedgehogImageRef.current,
+          -BIRD_SIZE/2,
+          -BIRD_SIZE/2,
+          BIRD_SIZE,
+          BIRD_SIZE
+        );
+        
+        ctx.restore();
+        
+        // Additional glow ring effect
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(BIRD_X, birdY + bounceOffset, BIRD_SIZE * 0.7, 0, Math.PI * 2);
+        ctx.strokeStyle = "#8B5CF6";
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.3;
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // Fallback to pixelated bird if image not loaded
+        const birdColors = ["#8B5CF6", "#A855F7", "#C084FC"];
+        
+        // Draw bird body with enhanced glow effect
+        for (let i = 0; i < BIRD_SIZE; i += PIXEL_SIZE) {
+          for (let j = 0; j < BIRD_SIZE; j += PIXEL_SIZE) {
+            const color = birdColors[Math.floor(Math.random() * birdColors.length)];
+            if (Math.sqrt(Math.pow(i - BIRD_SIZE/2, 2) + Math.pow(j - BIRD_SIZE/2, 2)) < BIRD_SIZE/2) {
+              drawPixel(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, color);
+            }
           }
         }
+        
+        // Bird glow effect
+        ctx.save();
+        ctx.shadowColor = "#8B5CF6";
+        ctx.shadowBlur = 8;
+        ctx.globalAlpha = 0.3;
+        for (let i = 0; i < BIRD_SIZE; i += PIXEL_SIZE) {
+          for (let j = 0; j < BIRD_SIZE; j += PIXEL_SIZE) {
+            if (Math.sqrt(Math.pow(i - BIRD_SIZE/2, 2) + Math.pow(j - BIRD_SIZE/2, 2)) < BIRD_SIZE/2) {
+              drawPixel(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, "#8B5CF6");
+            }
+          }
+        }
+        ctx.restore();
       }
+
+      // Draw particles
+      updateParticles();
+      particlesRef.current.forEach(particle => {
+        ctx.save();
+        ctx.globalAlpha = particle.life / particle.maxLife;
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(
+          Math.floor(particle.x / PIXEL_SIZE) * PIXEL_SIZE,
+          Math.floor(particle.y / PIXEL_SIZE) * PIXEL_SIZE,
+          particle.size,
+          particle.size
+        );
+        ctx.restore();
+      });
 
       // Score panel with retro style
       const drawRetroPanel = (x: number, y: number, width: number, height: number) => {
@@ -541,19 +752,97 @@ const FlappyBTCChart: React.FC = () => {
         }
       }
 
-      // Enhanced Combo display (moved to right side)
+      // Enhanced Flight HUD - Top Right Corner
+      if (gameStarted && !gameOver) {
+        const hudX = GAME_WIDTH - 300;
+        const hudY = 10;
+        
+        // HUD Background
+        drawRetroPanel(hudX, hudY, 290, 120);
+        
+        // Flight metrics
+        const altitude = Math.max(0, Math.round((GAME_HEIGHT - GROUND_HEIGHT - birdYRef.current) / (GAME_HEIGHT - GROUND_HEIGHT) * 100));
+        const velocity = Math.abs(Math.round(velocityRef.current * 10));
+        const gameTime = Math.round((Date.now() - gameStartTimeRef.current) / 1000);
+        
+        ctx.font = "10px 'Press Start 2P'";
+        ctx.textAlign = "left";
+        
+        // Altitude
+        ctx.fillStyle = altitude > 80 ? "#ef4444" : altitude > 50 ? "#f59e0b" : "#10b981";
+        ctx.fillText(`ALTITUDE: ${altitude}%`, hudX + 10, hudY + 25);
+        
+        // Velocity
+        ctx.fillStyle = velocity > 50 ? "#ef4444" : "#06b6d4";
+        ctx.fillText(`VELOCITY: ${velocity}`, hudX + 10, hudY + 40);
+        
+        // Game Time
+        ctx.fillStyle = "#a78bfa";
+        ctx.fillText(`TIME: ${gameTime}s`, hudX + 10, hudY + 55);
+        
+        // Candles Passed
+        ctx.fillStyle = "#10b981";
+        ctx.fillText(`CANDLES: ${gameStatsRef.current.candlesPassed}`, hudX + 10, hudY + 70);
+        
+        // Danger Warning
+        if (altitude < 20 || altitude > 90) {
+          const warningFlash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
+          ctx.fillStyle = `rgba(239, 68, 68, ${warningFlash})`;
+          ctx.font = "12px 'Press Start 2P'";
+          ctx.textAlign = "center";
+          ctx.fillText("⚠ DANGER ZONE ⚠", hudX + 145, hudY + 95);
+        }
+        
+        // Mini altitude bar
+        const barX = hudX + 200;
+        const barY = hudY + 15;
+        const barHeight = 80;
+        const barWidth = 8;
+        
+        // Background
+        ctx.fillStyle = "#374151";
+        ctx.fillRect(barX, barY, barWidth, barHeight);
+        
+        // Altitude indicator
+        const indicatorHeight = (altitude / 100) * barHeight;
+        const indicatorY = barY + barHeight - indicatorHeight;
+        ctx.fillStyle = altitude > 80 ? "#ef4444" : altitude > 50 ? "#f59e0b" : "#10b981";
+        ctx.fillRect(barX, indicatorY, barWidth, indicatorHeight);
+        
+        // Bird position on altitude bar
+        const birdIndicatorY = barY + (birdYRef.current / (GAME_HEIGHT - GROUND_HEIGHT)) * barHeight;
+        ctx.fillStyle = "#fef08a";
+        ctx.fillRect(barX - 2, birdIndicatorY - 2, barWidth + 4, 4);
+      }
+
+      // Enhanced Combo display (below HUD)
       if (combo > 0) {
-        drawRetroPanel(GAME_WIDTH - 280, 10, 270, 60);
+        const comboX = GAME_WIDTH - 300;
+        const comboY = 140;
+        
+        drawRetroPanel(comboX, comboY, 290, 60);
         const comboFlash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
         ctx.fillStyle = `rgb(${255 * comboFlash}, ${180 * comboFlash}, 0)`;
-        ctx.font = "20px 'Press Start 2P'";
-        ctx.textAlign = "right";
-        ctx.fillText(`COMBO x${combo}`, GAME_WIDTH - 20, 32);
+        ctx.font = "18px 'Press Start 2P'";
+        ctx.textAlign = "center";
+        ctx.fillText(`COMBO x${combo}`, comboX + 145, comboY + 25);
         
         // Show combo bonus points
-        ctx.font = "12px 'Press Start 2P'";
+        ctx.font = "10px 'Press Start 2P'";
         ctx.fillStyle = "#fef08a";
-        ctx.fillText(`+${combo * 50} BONUS!`, GAME_WIDTH - 20, 50);
+        ctx.fillText(`+${combo * 50} BONUS PER CANDLE!`, comboX + 145, comboY + 45);
+        
+        // Combo progress bar to next milestone
+        const nextMilestone = Math.ceil(combo / 5) * 5;
+        const progress = combo / nextMilestone;
+        const progressBarWidth = 250;
+        const progressBarX = comboX + 20;
+        const progressBarY = comboY + 50;
+        
+        ctx.fillStyle = "#374151";
+        ctx.fillRect(progressBarX, progressBarY, progressBarWidth, 4);
+        ctx.fillStyle = "#f59e0b";
+        ctx.fillRect(progressBarX, progressBarY, progressBarWidth * progress, 4);
       }
 
       // Draw active effects (moved to left side)
@@ -647,6 +936,9 @@ const FlappyBTCChart: React.FC = () => {
           ctx.globalAlpha = 1.0;
         }
       }
+      
+      // Restore canvas transform (end screen shake)
+      ctx.restore();
     };
 
     const gameLoop = () => {
@@ -692,6 +984,9 @@ const FlappyBTCChart: React.FC = () => {
               if (hasDoublePoints) points *= 2;
               if (hasScoreMultiplier) points *= 3;
               
+              // Create score particles
+              createParticles(c.x + c.width/2, c.low + (c.high - c.low)/2, 5, "#10b981", 25);
+              
               setScore((prev) => {
                 const newScore = prev + points;
                 
@@ -701,6 +996,8 @@ const FlappyBTCChart: React.FC = () => {
                 
                 if (currentTier.tier !== previousTier.tier && newScore >= 750) {
                   setTierUpgradeTime(Date.now());
+                  addScreenShake(8, 500); // Tier upgrade shake
+                  createParticles(GAME_WIDTH/2, GAME_HEIGHT/2, 20, currentTier.color, 100);
                 }
                 
                 return newScore;
@@ -742,6 +1039,22 @@ const FlappyBTCChart: React.FC = () => {
             if (!p.collected && dist < BIRD_SIZE/2 + 15) {
               p.collected = true;
               gameStatsRef.current.powerUpsCollected += 1;
+              
+              // Get power-up color for effects
+              let powerUpColor = "#fff";
+              switch(p.type) {
+                case 'shield': powerUpColor = "#3b82f6"; break;
+                case 'slowTime': powerUpColor = "#8b5cf6"; break;
+                case 'doublePoints': powerUpColor = "#f59e0b"; break;
+                case 'magnet': powerUpColor = "#ec4899"; break;
+                case 'invincibility': powerUpColor = "#10b981"; break;
+                case 'jumpBoost': powerUpColor = "#06b6d4"; break;
+                case 'scoreMultiplier': powerUpColor = "#f97316"; break;
+              }
+              
+              // Create power-up collection effects
+              createParticles(p.x, p.y, 12, powerUpColor, 40);
+              addScreenShake(3, 200);
 
               switch(p.type) {
                 case 'shield':
@@ -790,6 +1103,10 @@ const FlappyBTCChart: React.FC = () => {
               });
             } else {
               setGameOver(true);
+              // Add collision effects
+              addScreenShake(15, 800);
+              createParticles(BIRD_X, birdYRef.current, 25, "#ef4444", 80);
+              
               // Save player score when game ends
               savePlayerScore(score);
               if (address) {
@@ -981,17 +1298,45 @@ const FlappyBTCChart: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0718] flex flex-col items-center justify-center relative overflow-hidden p-4">
-      {/* Background Effects */}
-      <div className="fixed inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMCAzNmMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMTgtMThjMy4zMTQgMCA2LTIuNjg2IDYtNnMtMi42ODYtNi02LTYtNiAyLjY4Ni02IDYgMi42ODYgNiA2IDZ6Ii8+PC9nPjwvc3ZnPg==')] opacity-5"></div>
+    <div className="bg-[#0a0718] flex flex-col items-center justify-start relative overflow-hidden p-4 pt-8 pb-8">
+      {/* Enhanced Background Effects - Limited to game area */}
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMCAzNmMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMTgtMThjMy4zMTQgMCA2LTIuNjg2IDYtNnMtMi42ODYtNi02LTYtNiAyLjY4Ni02IDYgMi42ODYgNiA2IDZ6Ii8+PC9nPjwvc3ZnPg==')] opacity-5 animate-pulse"></div>
+      
+      {/* Floating particles in background */}
+      {Array.from({ length: 8 }, (_, i) => (
+        <div
+          key={i}
+          className="absolute w-2 h-2 bg-purple-400/20 rounded-full"
+          style={{
+            left: `${Math.random() * 100}%`,
+            animationDelay: `${i * 2}s`,
+            animation: 'floatUp 20s infinite linear'
+          }}
+        />
+      ))}
+      
+      {/* Ambient light orbs */}
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={`orb-${i}`}
+          className="absolute w-20 h-20 rounded-full blur-xl opacity-10"
+          style={{
+            background: `radial-gradient(circle, ${['#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#06B6D4'][i]}, transparent)`,
+            left: `${20 + i * 15}%`,
+            top: `${30 + Math.sin(i) * 20}%`,
+            animation: `float 8s ease-in-out infinite`,
+            animationDelay: `${i * 1.6}s`
+          }}
+        />
+      ))}
 
       {/* Arcade Cabinet Style Container with Grid Layout */}
-      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-6 md:p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_350px] gap-8 items-start">
+      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-3 md:p-4 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-[1600px] mx-auto">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_450px] gap-4 items-start min-h-[60vh] xl:min-h-[60vh]">
           {/* Game Section */}
-          <div className="space-y-8">
+          <div className="space-y-4">
             {/* 3D Spinning Monad Logo */}
-            <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-30">
+            <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 z-30">
               <div className="scene">
                 <div className="logo-wrapper">
                   <img src="/monad_logo.png" alt="Monad Logo Front" className="logo-front" />
@@ -1001,7 +1346,7 @@ const FlappyBTCChart: React.FC = () => {
             </div>
 
             {/* Game Title with Neon Effect */}
-            <div className="text-center mb-8 relative">
+            <div className="text-center mb-4 relative">
               <h1 className="font-['Press_Start_2P'] text-3xl relative">
                 <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONAPY</span>
                 <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-300">
@@ -1014,18 +1359,19 @@ const FlappyBTCChart: React.FC = () => {
               </p>
             </div>
 
-            {/* Game Screen Container with Enhanced CRT Effect */}
-            <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner w-full">
-              {/* CRT Screen Effects */}
+            {/* Enhanced Game Screen Container with CRT Effect */}
+            <div className="relative rounded-lg overflow-hidden border-[16px] border-slate-950 shadow-inner w-full crt-effect retro-glow">
+              {/* Enhanced CRT Screen Effects */}
               <div className="absolute inset-0 pointer-events-none z-10">
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black opacity-20"></div>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black opacity-30"></div>
                 <div className="absolute inset-0" style={{
                   backgroundImage: `
-                    linear-gradient(transparent 50%, rgba(0, 0, 0, 0.1) 50%),
-                    radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.3) 100%)
+                    linear-gradient(transparent 50%, rgba(0, 255, 0, 0.05) 50%),
+                    radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.4) 100%)
                   `,
                   backgroundSize: '100% 4px, 100% 100%',
                 }}></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/5 to-transparent animate-pulse"></div>
               </div>
 
               {/* Game Canvas */}
@@ -1042,44 +1388,45 @@ const FlappyBTCChart: React.FC = () => {
                 }}
               />
 
-              {/* Game Over Box Overlay - Positioned in Canvas Center */}
+              {/* Enhanced Game Over Box Overlay - Positioned in Canvas Center */}
               {gameOver && (
-                <div className="game-over-overlay absolute z-50 pointer-events-none" style={{
+                <div className="game-over-overlay absolute z-50 pointer-events-none animate-pulse" style={{
                   top: '50%',
                   left: '50%',
                   transform: 'translate(-50%, -50%)',
-                  width: '400px',
-                  height: '280px',
-                  background: '#1a103c',
-                  border: 'none',
-                  borderRadius: '0',
-                  boxShadow: 'none',
+                  width: '550px',
+                  height: '400px',
+                  background: 'linear-gradient(135deg, #1a103c, #2d1b69)',
+                  border: '4px solid #4c1d95',
+                  borderRadius: '12px',
+                  boxShadow: '0 0 60px rgba(168, 85, 247, 0.6), inset 0 0 60px rgba(168, 85, 247, 0.15)',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '16px',
+                  padding: '28px',
                   imageRendering: 'pixelated'
                 }}>
                   
-                  {/* Pixel Perfect Border */}
+                  {/* Enhanced Pixel Perfect Border with Glow */}
                   <div className="absolute inset-0 pointer-events-none" style={{
                     background: `
-                      linear-gradient(to right, #4c1d95 0px, #4c1d95 2px, transparent 2px),
-                      linear-gradient(to bottom, #4c1d95 0px, #4c1d95 2px, transparent 2px),
-                      linear-gradient(to left, #6d28d9 0px, #6d28d9 2px, transparent 2px),
-                      linear-gradient(to top, #6d28d9 0px, #6d28d9 2px, transparent 2px)
+                      linear-gradient(to right, #4c1d95 0px, #4c1d95 3px, transparent 3px),
+                      linear-gradient(to bottom, #4c1d95 0px, #4c1d95 3px, transparent 3px),
+                      linear-gradient(to left, #6d28d9 0px, #6d28d9 3px, transparent 3px),
+                      linear-gradient(to top, #6d28d9 0px, #6d28d9 3px, transparent 3px)
                     `,
-                    backgroundSize: '100% 2px, 2px 100%, 100% 2px, 2px 100%',
+                    backgroundSize: '100% 3px, 3px 100%, 100% 3px, 3px 100%',
                     backgroundPosition: 'top, right, bottom, left',
-                    backgroundRepeat: 'no-repeat'
+                    backgroundRepeat: 'no-repeat',
+                    borderRadius: '8px'
                   }}></div>
                   
-                  {/* Corner Pixels */}
-                  <div className="absolute top-0 left-0 w-2 h-2 bg-purple-600"></div>
-                  <div className="absolute top-0 right-0 w-2 h-2 bg-purple-600"></div>
-                  <div className="absolute bottom-0 left-0 w-2 h-2 bg-purple-600"></div>
-                  <div className="absolute bottom-0 right-0 w-2 h-2 bg-purple-600"></div>
+                  {/* Enhanced Corner Pixels with Glow */}
+                  <div className="absolute top-0 left-0 w-3 h-3 bg-purple-400 shadow-lg shadow-purple-500/50"></div>
+                  <div className="absolute top-0 right-0 w-3 h-3 bg-purple-400 shadow-lg shadow-purple-500/50"></div>
+                  <div className="absolute bottom-0 left-0 w-3 h-3 bg-purple-400 shadow-lg shadow-purple-500/50"></div>
+                  <div className="absolute bottom-0 right-0 w-3 h-3 bg-purple-400 shadow-lg shadow-purple-500/50"></div>
 
                   {/* Main Title */}
                   <div className="text-center relative z-10">
@@ -1113,56 +1460,65 @@ const FlappyBTCChart: React.FC = () => {
                     })()}
                   </div>
 
-                  {/* Score Information Panel */}
-                  <div className="relative w-full max-w-xs mx-auto" style={{
-                    background: '#312e81',
-                    border: '2px solid #818cf8',
+                  {/* Enhanced Score Information Panel */}
+                  <div className="relative w-full max-w-md mx-auto" style={{
+                    background: 'linear-gradient(145deg, #1e1b4b, #312e81)',
+                    border: '3px solid #6366f1',
+                    borderRadius: '12px',
+                    boxShadow: '0 0 20px rgba(99, 102, 241, 0.3), inset 0 0 20px rgba(99, 102, 241, 0.1)',
                     imageRendering: 'pixelated'
                   }}>
-                    {/* Panel border pixels */}
-                    <div className="absolute -top-1 -left-1 w-2 h-2 bg-slate-900"></div>
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-slate-900"></div>
-                    <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-slate-900"></div>
-                    <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-slate-900"></div>
+                    {/* Enhanced Panel border pixels */}
+                    <div className="absolute -top-1 -left-1 w-3 h-3 bg-slate-900 rounded-tl"></div>
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-slate-900 rounded-tr"></div>
+                    <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-slate-900 rounded-bl"></div>
+                    <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-slate-900 rounded-br"></div>
                     
-                    <div className="p-3 space-y-2 text-center relative z-10">
-                      <div className="font-['Press_Start_2P'] text-sm" 
+                    <div className="p-5 space-y-3 text-center relative z-10">
+                      <div className="font-['Press_Start_2P'] text-lg" 
                            style={{ 
                              color: '#fef08a',
-                             textShadow: '1px 1px 0px #000',
+                             textShadow: '2px 2px 0px #000, 0 0 10px #fef08a',
                              imageRendering: 'pixelated'
                            }}>
                         CURRENT: {score}
                       </div>
                       
                       {getCurrentPlayerBest() > 0 && (
-                        <div className="font-['Press_Start_2P'] text-xs" 
+                        <div className="font-['Press_Start_2P'] text-sm" 
                              style={{ 
                                color: getNFTTier(getCurrentPlayerBest()).color,
-                               textShadow: '1px 1px 0px #000',
+                               textShadow: `2px 2px 0px #000, 0 0 8px ${getNFTTier(getCurrentPlayerBest()).color}`,
                                imageRendering: 'pixelated'
                              }}>
                           BEST: {getCurrentPlayerBest()}
-                          {getCurrentPlayerBest() >= 750 && ` (${getNFTTier(getCurrentPlayerBest()).tier})`}
+                          {getCurrentPlayerBest() >= 750 && (
+                            <div className="mt-2 text-xs" style={{
+                              color: getNFTTier(getCurrentPlayerBest()).color,
+                              textShadow: `1px 1px 0px #000, 0 0 6px ${getNFTTier(getCurrentPlayerBest()).color}`
+                            }}>
+                              ({getNFTTier(getCurrentPlayerBest()).tier} TIER)
+                            </div>
+                          )}
                         </div>
                       )}
                       
                       {score > getCurrentPlayerBest() && (
-                        <div className="font-['Press_Start_2P'] text-xs animate-pulse" 
+                        <div className="font-['Press_Start_2P'] text-sm animate-pulse" 
                              style={{ 
-                               color: '#fef08a',
-                               textShadow: '1px 1px 0px #000',
+                               color: '#10b981',
+                               textShadow: '2px 2px 0px #000, 0 0 10px #10b981',
                                imageRendering: 'pixelated'
                              }}>
-                          NEW PERSONAL BEST!
+                          🏆 NEW PERSONAL BEST! 🏆
                         </div>
                       )}
                       
                       {getCurrentPlayerBest() < 750 && (
-                        <div className="font-['Press_Start_2P'] text-xs" 
+                        <div className="font-['Press_Start_2P'] text-sm" 
                              style={{ 
-                               color: '#fef08a',
-                               textShadow: '1px 1px 0px #000',
+                               color: '#f59e0b',
+                               textShadow: '2px 2px 0px #000, 0 0 8px #f59e0b',
                                imageRendering: 'pixelated'
                              }}>
                           NEED 750+ FOR NFT!
@@ -1170,13 +1526,15 @@ const FlappyBTCChart: React.FC = () => {
                       )}
                       
                       {address && getCurrentPlayerBest() >= 750 && (
-                        <div className="font-['Press_Start_2P'] text-xs" 
+                        <div className="font-['Press_Start_2P'] text-xs mt-3 p-2 rounded" 
                              style={{ 
                                color: '#a78bfa',
                                textShadow: '1px 1px 0px #000',
+                               backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                               border: '1px solid rgba(167, 139, 250, 0.3)',
                                imageRendering: 'pixelated'
                              }}>
-                          {address.slice(0, 8)}...{address.slice(-6)}
+                          WALLET: {address.slice(0, 8)}...{address.slice(-6)}
                         </div>
                       )}
                     </div>
@@ -1231,85 +1589,177 @@ const FlappyBTCChart: React.FC = () => {
               )}
             </div>
 
-            {/* Game Controls and Stats with Arcade Style */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Game Controls and Stats with Enhanced Arcade Style */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-                <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">CONTROLS</p>
+                <p className="font-['Press_Start_2P'] text-base text-purple-300 mb-3 relative z-10 text-center">CONTROLS</p>
                 <div className="flex items-center justify-center gap-4">
-                  <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
-                    <span className="text-yellow-200 text-xs">SPACE</span>
+                  <div className="text-center">
+                    <div className="px-4 py-3 bg-slate-900/80 rounded-lg border-2 border-purple-500/40 mb-2 transform hover:scale-105 transition-transform">
+                      <span className="text-yellow-200 text-sm font-['Press_Start_2P']">SPACE</span>
+                    </div>
+                    <span className="text-purple-200 text-xs">JUMP</span>
                   </div>
-                  <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
-                    <span className="text-yellow-200 text-xs">CLICK</span>
+                  <div className="text-center">
+                    <div className="px-4 py-3 bg-slate-900/80 rounded-lg border-2 border-purple-500/40 mb-2 transform hover:scale-105 transition-transform">
+                      <span className="text-yellow-200 text-sm font-['Press_Start_2P']">CLICK</span>
+                    </div>
+                    <span className="text-purple-200 text-xs">JUMP</span>
                   </div>
                 </div>
               </div>
               
               <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
                 <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-                <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER STATS</p>
-                <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{getCurrentPlayerBest()}</p>
-                {address && (
-                  <p className="text-xs text-purple-200 mt-1 relative z-10 break-all">
-                    {address.slice(0, 6)}...{address.slice(-4)}
-                  </p>
-                )}
+                <p className="font-['Press_Start_2P'] text-base text-purple-300 mb-3 relative z-10 text-center">BEST SCORE</p>
+                <div className="text-center">
+                  <p className="text-3xl text-yellow-300 font-['Press_Start_2P'] relative z-10 mb-2">{getCurrentPlayerBest()}</p>
+                  {getCurrentPlayerBest() >= 750 && (
+                    <div className="inline-block px-3 py-1 rounded-full text-xs font-['Press_Start_2P']" 
+                         style={{ 
+                           backgroundColor: `${getNFTTier(getCurrentPlayerBest()).color}20`,
+                           color: getNFTTier(getCurrentPlayerBest()).color,
+                           border: `1px solid ${getNFTTier(getCurrentPlayerBest()).color}40`
+                         }}>
+                      {getNFTTier(getCurrentPlayerBest()).tier}
+                    </div>
+                  )}
+                  {address && (
+                    <p className="text-xs text-purple-200 mt-2 relative z-10 break-all">
+                      {address.slice(0, 8)}...{address.slice(-6)}
+                    </p>
+                  )}
+                </div>
+              </div>
+              
+              <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
+                <p className="font-['Press_Start_2P'] text-base text-purple-300 mb-3 relative z-10 text-center">GAME STATS</p>
                 
-                {/* Game Stats */}
-                <div className="mt-3 space-y-1 relative z-10">
-                  <p className="text-xs text-purple-300">
-                    Games: {gameStatsRef.current.totalGamesPlayed}
-                  </p>
-                  <p className="text-xs text-purple-300">
-                    Power-ups: {gameStatsRef.current.powerUpsCollected}
-                  </p>
-                  <p className="text-xs text-purple-300">
-                    Best Combo: {gameStatsRef.current.bestCombo}
-                  </p>
+                {/* Game Stats Grid */}
+                <div className="grid grid-cols-2 gap-3 relative z-10">
+                  <div className="text-center">
+                    <p className="text-lg text-yellow-300 font-['Press_Start_2P']">{gameStatsRef.current.totalGamesPlayed}</p>
+                    <p className="text-xs text-purple-300">GAMES</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg text-yellow-300 font-['Press_Start_2P']">{gameStatsRef.current.powerUpsCollected}</p>
+                    <p className="text-xs text-purple-300">POWER-UPS</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg text-yellow-300 font-['Press_Start_2P']">{gameStatsRef.current.bestCombo}</p>
+                    <p className="text-xs text-purple-300">BEST COMBO</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg text-yellow-300 font-['Press_Start_2P']">{gameStatsRef.current.candlesPassed}</p>
+                    <p className="text-xs text-purple-300">CANDLES</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Leaderboard Column - Right Side */}
-          <div className="xl:sticky xl:top-8">
-            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-4 border-2 border-yellow-500/30 h-[600px] flex flex-col">
+          {/* Leaderboard Column - Right Side - Aligned with controls */}
+          <div className="xl:sticky xl:top-8 xl:h-[calc(100vh-4rem)] flex flex-col justify-start">
+            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-6 border-2 border-yellow-500/30 h-full min-h-[600px] xl:min-h-[calc(75vh-8rem)] flex flex-col">
               <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent"></div>
-              <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-4 relative z-10">🏆 LIVE LEADERBOARD</h3>
               
-              <div className="flex-1 space-y-2 relative z-10 overflow-y-auto pr-2">
+              {/* Enhanced Leaderboard Header */}
+              <div className="text-center mb-6 relative z-10">
+                <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-2">🏆 HALL OF FAME</h3>
+                <div className="flex justify-center items-center gap-4 text-xs">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-yellow-200">LIVE</span>
+                  </div>
+                  <div className="text-yellow-300">TOP {Math.min(leaderboard.length, 15)} PLAYERS</div>
+                </div>
+              </div>
+              
+              <div className="flex-1 space-y-3 relative z-10 overflow-y-auto pr-2 custom-scrollbar">
                 {leaderboard.length > 0 ? (
-                  leaderboard.map((entry, index) => (
+                  leaderboard.slice(0, 15).map((entry, index) => ( // Show top 15
                     <div 
                       key={`${entry.address}-${entry.timestamp}`} 
-                      className={`flex justify-between items-center p-2 rounded border transition-all ${
+                      className={`relative flex justify-between items-center p-4 rounded-lg border-2 transition-all duration-300 transform hover:scale-[1.02] ${
                         address && entry.address.toLowerCase() === address.toLowerCase()
-                          ? 'bg-yellow-900/60 border-yellow-400/50 shadow-lg'
-                          : 'bg-slate-900/60 border-yellow-500/20'
+                          ? 'bg-gradient-to-r from-yellow-900/80 to-yellow-800/60 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
+                          : 'bg-gradient-to-r from-slate-900/80 to-slate-800/60 border-yellow-500/30 hover:border-yellow-400/50'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs font-['Press_Start_2P'] w-6 ${
-                          index === 0 ? 'text-yellow-400' : 
-                          index === 1 ? 'text-gray-300' : 
-                          index === 2 ? 'text-amber-600' : 'text-gray-400'
+                      {/* Animated rank badge with enhanced effects */}
+                      <div className="flex items-center gap-4">
+                        <div className={`relative flex items-center justify-center w-10 h-10 rounded-full font-['Press_Start_2P'] text-xs transform transition-all duration-300 hover:scale-110 ${
+                          index === 0 ? 'bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 text-black shadow-lg shadow-yellow-500/50' : 
+                          index === 1 ? 'bg-gradient-to-br from-gray-300 via-gray-400 to-gray-500 text-black shadow-lg shadow-gray-400/50' : 
+                          index === 2 ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-white shadow-lg shadow-amber-600/50' : 
+                          'bg-gradient-to-br from-slate-600 to-slate-800 text-gray-300'
                         }`}>
-                          #{index + 1}
-                        </span>
-                        <span className="text-white text-xs font-['Press_Start_2P']">
-                          {entry.address.slice(0, 6)}...{entry.address.slice(-4)}
-                        </span>
-                        <span 
-                          className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded"
-                          style={{ color: getNFTTier(entry.score).color, backgroundColor: `${getNFTTier(entry.score).color}20` }}
-                        >
-                          {entry.tier.slice(0, 3)}
-                        </span>
+                          {index < 3 ? (
+                            <span>
+                              {index === 0 ? '👑' : index === 1 ? '🥈' : '🥉'}
+                            </span>
+                          ) : (
+                            <span>{index + 1}</span>
+                          )}
+                          
+                          {/* Crown glow effect for #1 */}
+                          {index === 0 && (
+                            <div className="absolute inset-0 rounded-full bg-yellow-400/30"></div>
+                          )}
+                        </div>
+                        
+                        {/* Player Info */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-white text-xs font-['Press_Start_2P']">
+                            {entry.address.slice(0, 8)}...{entry.address.slice(-6)}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span 
+                              className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded-full border"
+                              style={{ 
+                                color: getNFTTier(entry.score).color, 
+                                backgroundColor: `${getNFTTier(entry.score).color}15`,
+                                borderColor: `${getNFTTier(entry.score).color}40`
+                              }}
+                            >
+                              {entry.tier}
+                            </span>
+                            {index < 3 && (
+                              <span className="text-xs text-yellow-400">✨</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-yellow-300 text-xs font-['Press_Start_2P']">{entry.score}</span>
+                      
+                      {/* Enhanced score with pulse and formatting */}
+                      <div className="text-right">
+                        <div className={`text-sm font-['Press_Start_2P'] mb-1 transition-all duration-300 ${
+                          index === 0 ? 'text-yellow-300 text-base' :
+                          index === 1 ? 'text-gray-300 text-sm' :
+                          index === 2 ? 'text-amber-600 text-sm' :
+                          'text-yellow-300'
+                        }`}>
+                          {entry.score.toLocaleString()}
+                          {index < 3 && <span className="ml-1">✨</span>}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {new Date(entry.timestamp).toLocaleDateString()}
+                        </div>
+                        
+                        {/* Score trend indicator */}
+                        {index === 0 && (
+                          <div className="text-xs text-green-400">
+                            🔥 TOP SCORE
+                          </div>
+                        )}
                       </div>
+                      
+                      {/* Highlight for current player */}
+                      {address && entry.address.toLowerCase() === address.toLowerCase() && (
+                        <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400/20 via-transparent to-yellow-400/20 rounded-lg blur-sm"></div>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -1319,28 +1769,53 @@ const FlappyBTCChart: React.FC = () => {
                 )}
               </div>
               
-              <div className="mt-4 pt-4 border-t border-yellow-500/20 relative z-10">
+              <div className="mt-6 pt-6 border-t-2 border-yellow-500/30 relative z-10 space-y-4">
+                {/* Enhanced Refresh Button */}
                 <button
                   onClick={fetchLeaderboard}
-                  className="w-full px-3 py-2 bg-yellow-900/80 rounded border border-yellow-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-yellow-800/80 transition-colors"
+                  className="w-full px-4 py-3 bg-gradient-to-r from-yellow-900/80 to-yellow-800/80 rounded-lg border-2 border-yellow-500/30 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-gradient-to-r hover:from-yellow-800/80 hover:to-yellow-700/80 hover:border-yellow-400/50 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  🔄 REFRESH
+                  🔄 REFRESH LEADERBOARD
                 </button>
                 
-                {/* Leaderboard Stats */}
-                <div className="mt-2 space-y-1">
-                  <p className="text-xs text-yellow-200">
-                    Total Players: {leaderboard.length}
-                  </p>
+                {/* Enhanced Leaderboard Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
+                    <p className="text-sm text-yellow-300 font-['Press_Start_2P'] mb-1">
+                      {leaderboard.length}
+                    </p>
+                    <p className="text-xs text-yellow-200">TOTAL PLAYERS</p>
+                  </div>
+                  
                   {address && (() => {
                     const playerRank = leaderboard.findIndex(entry => 
                       entry.address.toLowerCase() === address.toLowerCase()) + 1;
-                    return playerRank > 0 && (
-                      <p className="text-xs text-yellow-300 font-['Press_Start_2P']">
-                        Your Rank: #{playerRank}
-                      </p>
+                    return (
+                      <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
+                        <p className="text-sm text-yellow-300 font-['Press_Start_2P'] mb-1">
+                          {playerRank > 0 ? `#${playerRank}` : '--'}
+                        </p>
+                        <p className="text-xs text-yellow-200">YOUR RANK</p>
+                      </div>
                     );
                   })()}
+                  
+                  {!address && (
+                    <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
+                      <p className="text-sm text-gray-400 font-['Press_Start_2P'] mb-1">--</p>
+                      <p className="text-xs text-gray-400">CONNECT WALLET</p>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Leaderboard Info */}
+                <div className="text-center space-y-2">
+                  <p className="text-xs text-yellow-300 font-['Press_Start_2P']">
+                    🎯 MINIMUM SCORE FOR NFT: 750
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Score updates automatically when you beat your record
+                  </p>
                 </div>
               </div>
             </div>
@@ -1348,7 +1823,7 @@ const FlappyBTCChart: React.FC = () => {
         </div>
 
         {/* Game Status Messages */}
-        <div className="text-center mt-8">
+        <div className="text-center mt-4 mb-16">
           {!gameOver && (
             <div className="inline-block relative">
               <p className="font-['Press_Start_2P'] text-sm text-yellow-300 animate-pulse relative">
@@ -1361,7 +1836,7 @@ const FlappyBTCChart: React.FC = () => {
       </div>
 
       {/* Enhanced Blockchain Connection Status */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50">
         <div className="flex items-center gap-3 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-3 rounded-full border border-purple-500/30 shadow-lg">
           <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]`}></div>
           <p className="font-['Press_Start_2P'] text-xs md:text-sm text-slate-300 relative">
@@ -1375,42 +1850,128 @@ const FlappyBTCChart: React.FC = () => {
         </div>
       </div>
 
-      {/* Animation Keyframes */}
+      {/* Enhanced Animation Keyframes and Styles */}
       <style>{`
+        /* Enhanced Scrollbar Animation */
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, #facc15, #eab308);
+          border-radius: 4px;
+          border: 1px solid rgba(234, 179, 8, 0.3);
+          transition: all 0.3s ease;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, #fde047, #facc15);
+          box-shadow: 0 0 10px rgba(234, 179, 8, 0.5);
+        }
+        
+        /* Enhanced Button Hover Effects */
+        .arcade-button {
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .arcade-button::before {
+          content: '';
+          position: absolute;
+          top: -2px;
+          left: -2px;
+          right: -2px;
+          bottom: -2px;
+          background: linear-gradient(45deg, transparent, rgba(168, 85, 247, 0.3), transparent);
+          z-index: -1;
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        
+        .arcade-button:hover::before {
+          opacity: 1;
+        }
+        
+        /* Breathing background animation */
+        @keyframes backgroundPulse {
+          0%, 100% { 
+            background-size: 100% 100%;
+            filter: hue-rotate(0deg);
+          }
+          50% { 
+            background-size: 110% 110%;
+            filter: hue-rotate(5deg);
+          }
+        }
+        
+        /* Floating elements */
+        @keyframes floatUp {
+          0% {
+            transform: translateY(100vh) rotate(0deg);
+            opacity: 0;
+          }
+          10% {
+            opacity: 0.7;
+          }
+          90% {
+            opacity: 0.7;
+          }
+          100% {
+            transform: translateY(-100px) rotate(360deg);
+            opacity: 0;
+          }
+        }
+        
+        /* Enhanced particle effects */
+        @keyframes particleFloat {
+          0% {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-50px) scale(0.5);
+            opacity: 0;
+          }
+        }
+        
         @keyframes scanline {
           0% { transform: translateY(0); }
           100% { transform: translateY(100%); }
         }
+        
         @keyframes glow {
           0%, 100% { opacity: 0.8; }
           50% { opacity: 1; }
         }
+        
         @keyframes float {
           0% { transform: translateY(0); }
           50% { transform: translateY(-10px); }
         }
+        
         @keyframes shine {
           0% { transform: translateX(-200%) rotate(0deg); }
           100% { transform: translateX(200%) rotate(0deg); }
         }
+        
         @keyframes shine-delayed {
           0% { transform: translateX(-200%) rotate(0deg); }
           25% { transform: translateX(-200%) rotate(0deg); }
           100% { transform: translateX(200%) rotate(0deg); }
         }
+        
         @keyframes pulse-border {
           0%, 100% { border-color: rgba(234, 179, 8, 0.8); }
           50% { border-color: rgba(234, 179, 8, 0.4); }
         }
+        
         @keyframes pulse-ring {
           0% { transform: scale(0.95); opacity: 0.5; }
           50% { transform: scale(1.05); opacity: 0.3; }
           100% { transform: scale(0.95); opacity: 0.5; }
         }
+        
         @keyframes spinY {
           from { transform: rotateY(0deg); }
           to { transform: rotateY(360deg); }
         }
+        
         @keyframes pixelBlink {
           0%, 50% { opacity: 1; }
           51%, 100% { opacity: 0; }
@@ -1420,16 +1981,28 @@ const FlappyBTCChart: React.FC = () => {
           0% { transform: translateX(-200%) rotate(35deg); }
           100% { transform: translateX(200%) rotate(35deg); }
         }
+        
         @keyframes sparkle {
           0%, 100% { opacity: 0; transform: scale(0); }
           50% { opacity: 1; transform: scale(1); }
         }
         
+        @keyframes leaderboardEntry {
+          0% { transform: translateX(-20px); opacity: 0; }
+          100% { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes digitalFlicker {
+          0%, 100% { opacity: 1; }
+          98% { opacity: 1; }
+          99% { opacity: 0.95; }
+        }
+        
         /* 3D Logo Animation Styles */
         .scene {
-          width: 120px;
-          height: 120px;
-          perspective: 800px;
+          width: 140px;
+          height: 140px;
+          perspective: 1000px;
           margin: 0 auto;
         }
         
@@ -1445,21 +2018,24 @@ const FlappyBTCChart: React.FC = () => {
           position: absolute;
           top: 50%;
           left: 50%;
-          width: 80px;
-          height: 80px;
-          margin: -40px 0 0 -40px;
+          width: 100px;
+          height: 100px;
+          margin: -50px 0 0 -50px;
           backface-visibility: hidden;
           border-radius: 50%;
-          box-shadow: 0 0 20px rgba(168, 85, 247, 0.5);
+          box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
         }
         
         .logo-back {
           transform: rotateY(180deg);
         }
+        
         .arcade-panel {
           position: relative;
           overflow: hidden;
+          animation: digitalFlicker 3s infinite;
         }
+        
         .arcade-panel::before {
           content: '';
           position: absolute;
@@ -1473,9 +2049,10 @@ const FlappyBTCChart: React.FC = () => {
             rgba(168, 85, 247, 0.1) 50%,
             transparent 100%
           );
-          animation: shine 3s infinite linear;
+          animation: shine 4s infinite linear;
           pointer-events: none;
         }
+        
         .animate-shine {
           position: absolute;
           top: 0;
@@ -1491,6 +2068,7 @@ const FlappyBTCChart: React.FC = () => {
           animation: shine 3s infinite linear;
           pointer-events: none;
         }
+        
         .animate-shine-delayed {
           position: absolute;
           top: 0;
@@ -1506,24 +2084,56 @@ const FlappyBTCChart: React.FC = () => {
           animation: shine-delayed 4s infinite linear;
           pointer-events: none;
         }
+        
         .animate-float {
           animation: float 3s ease-in-out infinite;
         }
+        
         .animate-pulse-ring {
           animation: pulse-ring 3s ease-in-out infinite;
         }
+        
         .animate-pulse-border {
           animation: pulse-border 2s ease-in-out infinite;
         }
+        
         .neon-text {
           text-shadow: 0 0 5px rgba(168, 85, 247, 0.8),
                      0 0 10px rgba(168, 85, 247, 0.5),
                      0 0 15px rgba(168, 85, 247, 0.3);
         }
+        
         .pixel-text {
           image-rendering: pixelated;
           image-rendering: -moz-crisp-edges;
           image-rendering: crisp-edges;
+        }
+        
+        .retro-glow {
+          box-shadow: 
+            0 0 10px rgba(168, 85, 247, 0.3),
+            inset 0 0 10px rgba(168, 85, 247, 0.1);
+        }
+        
+        /* Enhanced CRT Effects */
+        .crt-effect {
+          position: relative;
+        }
+        
+        .crt-effect::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(
+            transparent 50%,
+            rgba(0, 255, 0, 0.03) 50%
+          );
+          background-size: 100% 4px;
+          pointer-events: none;
+          animation: scanline 2s linear infinite;
         }
       `}</style>
     </div>
