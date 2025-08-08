@@ -92,7 +92,6 @@ const FlappyBTCChart: React.FC = () => {
   const [isOwner, setIsOwner] = useState(false);
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
 
@@ -282,6 +281,11 @@ const FlappyBTCChart: React.FC = () => {
     const hasJumpBoost = (activeEffectsRef.current.jumpBoost?.until ?? 0) > Date.now();
     const jumpForce = hasJumpBoost ? JUMP_FORCE * 1.3 : JUMP_FORCE;
     velocityRef.current = jumpForce;
+  };
+
+  const handleCanvasClick = () => {
+    // Allow flap on any canvas click since leaderboard is now separate
+    flap();
   };
 
   const spawnCandle = () => {
@@ -651,148 +655,6 @@ const FlappyBTCChart: React.FC = () => {
         ctx.fillText(`${currentTier.tier} UNLOCKED!`, GAME_WIDTH / 2, GAME_HEIGHT / 2 + 10 + bounceY);
         
         ctx.restore();
-      }
-
-      // Game over with retro arcade style
-      if (gameOver) {
-        // Dark overlay with scanlines
-        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        
-        // Retro scanlines effect
-        for (let y = 0; y < GAME_HEIGHT; y += PIXEL_SIZE) {
-          ctx.fillStyle = `rgba(255, 255, 255, ${y % (PIXEL_SIZE * 2) === 0 ? 0.03 : 0})`;
-          ctx.fillRect(0, y, GAME_WIDTH, 1);
-        }
-
-        // Create retro game over box
-        const boxWidth = 400;
-        const boxHeight = 200;
-        const boxX = (GAME_WIDTH - boxWidth) / 2;
-        const boxY = (GAME_HEIGHT - boxHeight) / 2;
-
-        // Draw box background with pixel perfect border
-        ctx.fillStyle = "#1a103c";
-        ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-        
-        // Pixel border effect
-        const borderColors = ["#4c1d95", "#6d28d9", "#7c3aed"];
-        borderColors.forEach((color, i) => {
-          ctx.fillStyle = color;
-          // Top border
-          ctx.fillRect(boxX - i, boxY - i, boxWidth + i * 2, 2);
-          // Bottom border
-          ctx.fillRect(boxX - i, boxY + boxHeight + i - 2, boxWidth + i * 2, 2);
-          // Left border
-          ctx.fillRect(boxX - i, boxY - i, 2, boxHeight + i * 2);
-          // Right border
-          ctx.fillRect(boxX + boxWidth + i - 2, boxY - i, 2, boxHeight + i * 2);
-        });
-
-        // Score and message display based on NFT tiers and score
-        const nftTier = getNFTTier(getCurrentPlayerBest()); // Use best score for tier display
-        const playerBest = getCurrentPlayerBest();
-        const isNewRecord = score > playerBest;
-
-        if (playerBest >= 750) {
-          // High score with NFT eligibility - show eligible tier
-          const flash = Math.sin(Date.now() * 0.01) > 0;
-          ctx.fillStyle = flash ? nftTier.color : "#facc15";
-          ctx.font = "bold 24px 'Press Start 2P'";
-          ctx.textAlign = "center";
-          ctx.fillText(`${nftTier.tier} TIER ELIGIBLE!`, GAME_WIDTH / 2, boxY + 50);
-
-          // Current game score display
-          ctx.font = "20px 'Press Start 2P'";
-          ctx.fillStyle = "#fef08a";
-          ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
-
-          // Best score display with tier color
-          ctx.font = "18px 'Press Start 2P'";
-          ctx.fillStyle = nftTier.color;
-          ctx.fillText(`BEST: ${playerBest}`, GAME_WIDTH / 2, boxY + 105);
-
-          // New record indicator
-          if (isNewRecord) {
-            ctx.font = "14px 'Press Start 2P'";
-            ctx.fillStyle = "#fef08a";
-            ctx.fillText("NEW PERSONAL BEST!", GAME_WIDTH / 2, boxY + 125);
-          }
-
-          // NFT eligibility message based on best score
-          if (Math.floor(Date.now() / 500) % 2 === 0) {
-            ctx.font = "16px 'Press Start 2P'";
-            ctx.fillStyle = "#fef08a";
-            ctx.fillText(`MINT ${nftTier.tier} NFT AVAILABLE!`, GAME_WIDTH / 2, boxY + 150);
-          }
-
-          // Wallet address display
-          if (address) {
-            ctx.font = "12px 'Press Start 2P'";
-            ctx.fillStyle = "#a78bfa";
-            ctx.fillText(`${address.slice(0, 8)}...${address.slice(-6)}`, GAME_WIDTH / 2, boxY + 175);
-          }
-        } else {
-          // Low score - encourage to reach NFT tiers
-          const flash = Math.sin(Date.now() * 0.01) > 0;
-          ctx.fillStyle = flash ? "#ef4444" : "#dc2626";
-          ctx.font = "bold 24px 'Press Start 2P'";
-          ctx.textAlign = "center";
-          
-          if (playerBest >= 750) {
-            // User has NFT eligibility but current game score is low
-            ctx.fillText("LOW SCORE THIS ROUND!", GAME_WIDTH / 2, boxY + 50);
-            
-            // Current game score
-            ctx.font = "18px 'Press Start 2P'";
-            ctx.fillStyle = "#ef4444";
-            ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
-            
-            // Best score with tier info
-            const bestTier = getNFTTier(playerBest);
-            ctx.font = "16px 'Press Start 2P'";
-            ctx.fillStyle = bestTier.color;
-            ctx.fillText(`BEST: ${playerBest} (${bestTier.tier})`, GAME_WIDTH / 2, boxY + 105);
-            
-            // NFT still available message
-            ctx.font = "14px 'Press Start 2P'";
-            ctx.fillStyle = "#fef08a";
-            ctx.fillText(`${bestTier.tier} NFT STILL AVAILABLE!`, GAME_WIDTH / 2, boxY + 130);
-          } else {
-            // User never reached NFT eligibility
-            ctx.fillText("NOT ENOUGH!", GAME_WIDTH / 2, boxY + 50);
-            
-            // Current score display
-            ctx.font = "20px 'Press Start 2P'";
-            ctx.fillStyle = "#ef4444";
-            ctx.fillText(`CURRENT: ${score}`, GAME_WIDTH / 2, boxY + 80);
-
-            // Best score if exists
-            if (playerBest > 0) {
-              ctx.font = "16px 'Press Start 2P'";
-              ctx.fillStyle = "#a78bfa";
-              ctx.fillText(`YOUR BEST: ${playerBest}`, GAME_WIDTH / 2, boxY + 105);
-            }
-
-            // New record indicator for low scores too
-            if (isNewRecord && score > 0) {
-              ctx.font = "14px 'Press Start 2P'";
-              ctx.fillStyle = "#fef08a";
-              ctx.fillText("NEW PERSONAL BEST!", GAME_WIDTH / 2, boxY + 125);
-            }
-
-            // Next tier goal
-            const nextTier = getNFTTier(750); // Minimum NFT tier
-            ctx.font = "14px 'Press Start 2P'";
-            ctx.fillStyle = "#fef08a";
-            ctx.fillText(`NEED ${nextTier.requirement}+ FOR NFT!`, GAME_WIDTH / 2, boxY + 150);
-          }
-        }
-        
-        // Continue prompt
-        ctx.font = "16px 'Press Start 2P'";
-        ctx.fillStyle = "#f0f9ff";
-        ctx.fillText("PRESS SPACE TO CONTINUE", GAME_WIDTH / 2, boxY + 190);
       }
 
       if (!gameStarted && !gameOver) {
@@ -1305,277 +1167,384 @@ const FlappyBTCChart: React.FC = () => {
       {/* Background Effects */}
       <div className="fixed inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMCAzNmMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNi02IDIuNjg2LTYgNiAyLjY4NiA2IDYgNnptMTgtMThjMy4zMTQgMCA2LTIuNjg2IDYtNnMtMi42ODYtNi02LTYtNiAyLjY4Ni02IDYgMi42ODYgNiA2IDZ6Ii8+PC9nPjwvc3ZnPg==')] opacity-5"></div>
 
-      {/* Arcade Cabinet Style Container */}
-      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-6 md:p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-6xl mx-auto">
-        {/* 3D Spinning Monad Logo */}
-        <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-30">
-          <div className="scene">
-            <div className="logo-wrapper">
-              <img src="/monad_logo.png" alt="Monad Logo Front" className="logo-front" />
-              <img src="/monad_logo.png" alt="Monad Logo Back" className="logo-back" />
-            </div>
-          </div>
-        </div>
-
-        {/* Game Title with Neon Effect */}
-        <div className="text-center mb-8 relative">
-          <h1 className="font-['Press_Start_2P'] text-3xl relative">
-            <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONAPY</span>
-            <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-300">
-              MONAPY
-            </span>
-          </h1>
-          <p className="font-['Press_Start_2P'] text-sm mt-2 relative">
-            <span className="absolute inset-0 text-purple-400 blur-[1px]">GMONAD @0xGbyte</span>
-            <span className="relative text-purple-300">GMONAD @0xGbyte</span>
-          </p>
-        </div>
-
-        {/* Game Screen Container with Enhanced CRT Effect */}
-        <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner w-full">
-          {/* CRT Screen Effects */}
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black opacity-20"></div>
-            <div className="absolute inset-0" style={{
-              backgroundImage: `
-                linear-gradient(transparent 50%, rgba(0, 0, 0, 0.1) 50%),
-                radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.3) 100%)
-              `,
-              backgroundSize: '100% 4px, 100% 100%',
-              animation: 'scanline 10s linear infinite',
-            }}></div>
-          </div>
-
-          {/* Game Canvas */}
-          <canvas
-            ref={canvasRef}
-            width={GAME_WIDTH}
-            height={GAME_HEIGHT}
-            onClick={flap}
-            tabIndex={0}
-            className="bg-slate-900 outline-none w-full h-auto max-w-full"
-            style={{
-              imageRendering: 'pixelated',
-              aspectRatio: `${GAME_WIDTH}/${GAME_HEIGHT}`
-            }}
-          />
-        </div>
-
-        {/* Game Controls and Stats with Arcade Style */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">CONTROLS</p>
-            <div className="flex items-center justify-center gap-4">
-              <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
-                <span className="text-yellow-200 text-xs">SPACE</span>
-              </div>
-              <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
-                <span className="text-yellow-200 text-xs">CLICK</span>
+      {/* Arcade Cabinet Style Container with Grid Layout */}
+      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-6 md:p-10 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_350px] gap-8 items-start">
+          {/* Game Section */}
+          <div className="space-y-8">
+            {/* 3D Spinning Monad Logo */}
+            <div className="absolute -top-16 left-1/2 transform -translate-x-1/2 z-30">
+              <div className="scene">
+                <div className="logo-wrapper">
+                  <img src="/monad_logo.png" alt="Monad Logo Front" className="logo-front" />
+                  <img src="/monad_logo.png" alt="Monad Logo Back" className="logo-back" />
+                </div>
               </div>
             </div>
-          </div>
-          
-          <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER STATS</p>
-            <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{getCurrentPlayerBest()}</p>
-            {address && (
-              <p className="text-xs text-purple-200 mt-1 relative z-10 break-all">
-                {address.slice(0, 6)}...{address.slice(-4)}
-              </p>
-            )}
-            
-            {/* Game Stats */}
-            <div className="mt-3 space-y-1 relative z-10">
-              <p className="text-xs text-purple-300">
-                Games: {gameStatsRef.current.totalGamesPlayed}
-              </p>
-              <p className="text-xs text-purple-300">
-                Power-ups: {gameStatsRef.current.powerUpsCollected}
-              </p>
-              <p className="text-xs text-purple-300">
-                Best Combo: {gameStatsRef.current.bestCombo}
+
+            {/* Game Title with Neon Effect */}
+            <div className="text-center mb-8 relative">
+              <h1 className="font-['Press_Start_2P'] text-3xl relative">
+                <span className="absolute inset-0 text-yellow-300 blur-[2px] animate-pulse">MONAPY</span>
+                <span className="relative text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-300">
+                  MONAPY
+                </span>
+              </h1>
+              <p className="font-['Press_Start_2P'] text-sm mt-2 relative">
+                <span className="absolute inset-0 text-purple-400 blur-[1px]">GMONAD @0xGbyte</span>
+                <span className="relative text-purple-300">GMONAD @0xGbyte</span>
               </p>
             </div>
-            
-            {/* Leaderboard Button */}
-            <button
-              onClick={() => setShowLeaderboard(!showLeaderboard)}
-              className="mt-3 px-3 py-2 bg-purple-900/80 rounded border border-purple-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-purple-800/80 transition-colors relative z-10 w-full"
-            >
-              {showLeaderboard ? '🏆 HIDE BOARD' : '🏆 LEADERBOARD'}
-            </button>
-          </div>
 
-          {/* Admin Panel - Only visible to contract owner */}
-          {isOwner && (
-            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-red-800 to-red-900 p-4 border-2 border-red-500/30">
-              <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-transparent"></div>
-              <p className="font-['Press_Start_2P'] text-sm text-red-300 mb-2 relative z-10">ADMIN PANEL</p>
-              <button
-                onClick={batchUpdateScores}
-                className="px-3 py-2 bg-red-900/80 rounded border border-red-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-red-800/80 transition-colors relative z-10"
-              >
-                SYNC SCORES
-              </button>
-              <p className="text-xs text-red-200 mt-1 relative z-10">
-                Update on-chain scores
-              </p>
-            </div>
-          )}
-        </div>
+            {/* Game Screen Container with Enhanced CRT Effect */}
+            <div className="relative rounded-lg overflow-hidden border-[12px] border-slate-950 shadow-inner w-full">
+              {/* CRT Screen Effects */}
+              <div className="absolute inset-0 pointer-events-none z-10">
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black opacity-20"></div>
+                <div className="absolute inset-0" style={{
+                  backgroundImage: `
+                    linear-gradient(transparent 50%, rgba(0, 0, 0, 0.1) 50%),
+                    radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.3) 100%)
+                  `,
+                  backgroundSize: '100% 4px, 100% 100%',
+                }}></div>
+              </div>
 
-        {/* Leaderboard Panel */}
-        {showLeaderboard && (
-          <div className="mt-6 arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-4 border-2 border-yellow-500/30">
-            <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent"></div>
-            <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-4 relative z-10">🏆 LIVE LEADERBOARD</h3>
-            
-            <div className="space-y-2 relative z-10 max-h-64 overflow-y-auto">
-              {leaderboard.length > 0 ? (
-                leaderboard.map((entry, index) => (
-                  <div key={`${entry.address}-${entry.timestamp}`} className="flex justify-between items-center p-2 bg-slate-900/60 rounded border border-yellow-500/20">
-                    <div className="flex items-center gap-3">
-                      <span className="text-yellow-400 text-xs font-['Press_Start_2P'] w-6">#{index + 1}</span>
-                      <span className="text-white text-xs font-['Press_Start_2P']">
-                        {entry.address.slice(0, 6)}...{entry.address.slice(-4)}
-                      </span>
-                      <span 
-                        className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded"
-                        style={{ color: getNFTTier(entry.score).color, backgroundColor: `${getNFTTier(entry.score).color}20` }}
-                      >
-                        {entry.tier}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-yellow-300 text-xs font-['Press_Start_2P']">{entry.score}</span>
-                      <span className="text-gray-400 text-xs">
-                        {new Date(entry.timestamp).toLocaleDateString()}
-                      </span>
+              {/* Game Canvas */}
+              <canvas
+                ref={canvasRef}
+                width={GAME_WIDTH}
+                height={GAME_HEIGHT}
+                onClick={handleCanvasClick}
+                tabIndex={0}
+                className="bg-slate-900 outline-none w-full h-auto max-w-full"
+                style={{
+                  imageRendering: 'pixelated',
+                  aspectRatio: `${GAME_WIDTH}/${GAME_HEIGHT}`
+                }}
+              />
+
+              {/* Game Over Box Overlay - Positioned in Canvas Center */}
+              {gameOver && (
+                <div className="game-over-overlay absolute z-50 pointer-events-none" style={{
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: '400px',
+                  height: '280px',
+                  background: '#1a103c',
+                  border: 'none',
+                  borderRadius: '0',
+                  boxShadow: 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '16px',
+                  imageRendering: 'pixelated'
+                }}>
+                  
+                  {/* Pixel Perfect Border */}
+                  <div className="absolute inset-0 pointer-events-none" style={{
+                    background: `
+                      linear-gradient(to right, #4c1d95 0px, #4c1d95 2px, transparent 2px),
+                      linear-gradient(to bottom, #4c1d95 0px, #4c1d95 2px, transparent 2px),
+                      linear-gradient(to left, #6d28d9 0px, #6d28d9 2px, transparent 2px),
+                      linear-gradient(to top, #6d28d9 0px, #6d28d9 2px, transparent 2px)
+                    `,
+                    backgroundSize: '100% 2px, 2px 100%, 100% 2px, 2px 100%',
+                    backgroundPosition: 'top, right, bottom, left',
+                    backgroundRepeat: 'no-repeat'
+                  }}></div>
+                  
+                  {/* Corner Pixels */}
+                  <div className="absolute top-0 left-0 w-2 h-2 bg-purple-600"></div>
+                  <div className="absolute top-0 right-0 w-2 h-2 bg-purple-600"></div>
+                  <div className="absolute bottom-0 left-0 w-2 h-2 bg-purple-600"></div>
+                  <div className="absolute bottom-0 right-0 w-2 h-2 bg-purple-600"></div>
+
+                  {/* Main Title */}
+                  <div className="text-center relative z-10">
+                    {(() => {
+                      const playerBest = getCurrentPlayerBest();
+                      const nftTier = getNFTTier(playerBest);
+                      
+                      if (playerBest >= 750) {
+                        return (
+                          <h2 className="font-['Press_Start_2P'] text-lg mb-2 pixel-text" 
+                              style={{ 
+                                color: nftTier.color,
+                                textShadow: `2px 2px 0px #000, 0 0 8px ${nftTier.color}`,
+                                imageRendering: 'pixelated'
+                              }}>
+                            {nftTier.tier} TIER ELIGIBLE!
+                          </h2>
+                        );
+                      } else {
+                        return (
+                          <h2 className="font-['Press_Start_2P'] text-lg mb-2 pixel-text" 
+                              style={{ 
+                                color: '#ef4444',
+                                textShadow: '2px 2px 0px #000, 0 0 8px #ef4444',
+                                imageRendering: 'pixelated'
+                              }}>
+                            NOT ENOUGH!
+                          </h2>
+                        );
+                      }
+                    })()}
+                  </div>
+
+                  {/* Score Information Panel */}
+                  <div className="relative w-full max-w-xs mx-auto" style={{
+                    background: '#312e81',
+                    border: '2px solid #818cf8',
+                    imageRendering: 'pixelated'
+                  }}>
+                    {/* Panel border pixels */}
+                    <div className="absolute -top-1 -left-1 w-2 h-2 bg-slate-900"></div>
+                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-slate-900"></div>
+                    <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-slate-900"></div>
+                    <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-slate-900"></div>
+                    
+                    <div className="p-3 space-y-2 text-center relative z-10">
+                      <div className="font-['Press_Start_2P'] text-sm" 
+                           style={{ 
+                             color: '#fef08a',
+                             textShadow: '1px 1px 0px #000',
+                             imageRendering: 'pixelated'
+                           }}>
+                        CURRENT: {score}
+                      </div>
+                      
+                      {getCurrentPlayerBest() > 0 && (
+                        <div className="font-['Press_Start_2P'] text-xs" 
+                             style={{ 
+                               color: getNFTTier(getCurrentPlayerBest()).color,
+                               textShadow: '1px 1px 0px #000',
+                               imageRendering: 'pixelated'
+                             }}>
+                          BEST: {getCurrentPlayerBest()}
+                          {getCurrentPlayerBest() >= 750 && ` (${getNFTTier(getCurrentPlayerBest()).tier})`}
+                        </div>
+                      )}
+                      
+                      {score > getCurrentPlayerBest() && (
+                        <div className="font-['Press_Start_2P'] text-xs animate-pulse" 
+                             style={{ 
+                               color: '#fef08a',
+                               textShadow: '1px 1px 0px #000',
+                               imageRendering: 'pixelated'
+                             }}>
+                          NEW PERSONAL BEST!
+                        </div>
+                      )}
+                      
+                      {getCurrentPlayerBest() < 750 && (
+                        <div className="font-['Press_Start_2P'] text-xs" 
+                             style={{ 
+                               color: '#fef08a',
+                               textShadow: '1px 1px 0px #000',
+                               imageRendering: 'pixelated'
+                             }}>
+                          NEED 750+ FOR NFT!
+                        </div>
+                      )}
+                      
+                      {address && getCurrentPlayerBest() >= 750 && (
+                        <div className="font-['Press_Start_2P'] text-xs" 
+                             style={{ 
+                               color: '#a78bfa',
+                               textShadow: '1px 1px 0px #000',
+                               imageRendering: 'pixelated'
+                             }}>
+                          {address.slice(0, 8)}...{address.slice(-6)}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-center text-gray-400 text-xs font-['Press_Start_2P']">
-                  No scores yet. Be the first! 🚀
+
+                  {/* Mint Button - Arcade Style */}
+                  {getCurrentPlayerBest() >= 750 && (
+                    <div className="relative">
+                      <button
+                        onClick={mintNFT}
+                        disabled={!isConnected}
+                        className="pointer-events-auto font-['Press_Start_2P'] text-xs transition-all duration-200 hover:scale-105 active:scale-95"
+                        style={{
+                          padding: '12px 20px',
+                          background: `${getNFTTier(getCurrentPlayerBest()).color}`,
+                          border: '3px solid #000',
+                          borderRadius: '0',
+                          color: '#000',
+                          textShadow: 'none',
+                          boxShadow: '4px 4px 0px #000',
+                          imageRendering: 'pixelated',
+                          fontWeight: 'bold'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translate(-2px, -2px)';
+                          e.currentTarget.style.boxShadow = '6px 6px 0px #000';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translate(0px, 0px)';
+                          e.currentTarget.style.boxShadow = '4px 4px 0px #000';
+                        }}
+                      >
+                        MINT {getNFTTier(getCurrentPlayerBest()).tier} NFT
+                      </button>
+                      
+                      {/* Button highlight pixels */}
+                      <div className="absolute top-1 left-1 w-2 h-2 bg-white opacity-60"></div>
+                    </div>
+                  )}
+
+                  {/* Continue Prompt - Blinking Arcade Style */}
+                  <div className="font-['Press_Start_2P'] text-xs text-center relative z-10" 
+                       style={{ 
+                         color: '#f0f9ff',
+                         textShadow: '1px 1px 0px #000, 0 0 8px #4c1d95',
+                         imageRendering: 'pixelated',
+                         animation: 'pixelBlink 1s infinite'
+                       }}>
+                    PRESS SPACE TO CONTINUE
+                  </div>
                 </div>
               )}
             </div>
-            
-            <button
-              onClick={fetchLeaderboard}
-              className="mt-4 px-3 py-2 bg-yellow-900/80 rounded border border-yellow-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-yellow-800/80 transition-colors"
-            >
-              🔄 REFRESH
-            </button>
-          </div>
-        )}
 
-        {/* NFT Mint Button - Shows user's eligible tier based on their best score */}
-        {gameOver && getCurrentPlayerBest() >= 750 && (
-          <div className="fixed left-1/2 transform -translate-x-1/2 z-40" style={{ top: '70%' }}>
-            <div className="flex flex-col items-center gap-4">
-              {/* Tier NFT Mint Button */}
-              <div className="relative animate-float">
-                {/* Enhanced glow effect background */}
-                <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
+            {/* Game Controls and Stats with Arcade Style */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
+                <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">CONTROLS</p>
+                <div className="flex items-center justify-center gap-4">
+                  <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
+                    <span className="text-yellow-200 text-xs">SPACE</span>
+                  </div>
+                  <div className="px-4 py-2 bg-slate-900/80 rounded border border-purple-500/20">
+                    <span className="text-yellow-200 text-xs">CLICK</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
+                <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER STATS</p>
+                <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{getCurrentPlayerBest()}</p>
+                {address && (
+                  <p className="text-xs text-purple-200 mt-1 relative z-10 break-all">
+                    {address.slice(0, 6)}...{address.slice(-4)}
+                  </p>
+                )}
                 
-                {/* Pulsing ring with tier color based on user's best score */}
-                <div 
-                  className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring"
-                  style={{ 
-                    background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}40, ${getNFTTier(getCurrentPlayerBest()).color})` 
-                  }}
-                ></div>
-                
-                {/* Animated border with tier color based on user's best score */}
-                <div 
-                  className="absolute inset-0 rounded-xl animate-pulse-border"
-                  style={{ 
-                    background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}80, ${getNFTTier(getCurrentPlayerBest()).color})` 
-                  }}
-                ></div>
-                
-                {/* Main button with enhanced effects */}
-                <button
-                  onClick={mintNFT}
-                  className="relative px-8 py-4 rounded-xl font-['Press_Start_2P'] text-lg text-white shadow-lg 
-                            transition-all duration-300 border-2 transform hover:scale-105 
-                            z-10 min-w-[240px] overflow-hidden"
-                  style={{
-                    background: `linear-gradient(to bottom, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}CC)`,
-                    borderColor: getNFTTier(getCurrentPlayerBest()).color,
-                    boxShadow: `0 0 20px ${getNFTTier(getCurrentPlayerBest()).color}50`
-                  }}
-                >
-                  {/* Multiple animated shine effects */}
-                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
-                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 animate-shine-delayed"></span>
-                  
-                  {/* Pixelated texture overlay */}
-                  <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-20"></div>
-                  
-                  <span className="relative">MINT {getNFTTier(getCurrentPlayerBest()).tier} NFT 🏆</span>
-                </button>
+                {/* Game Stats */}
+                <div className="mt-3 space-y-1 relative z-10">
+                  <p className="text-xs text-purple-300">
+                    Games: {gameStatsRef.current.totalGamesPlayed}
+                  </p>
+                  <p className="text-xs text-purple-300">
+                    Power-ups: {gameStatsRef.current.powerUpsCollected}
+                  </p>
+                  <p className="text-xs text-purple-300">
+                    Best Combo: {gameStatsRef.current.bestCombo}
+                  </p>
+                </div>
               </div>
 
-              {/* Achievement NFT Mint Button - Only show if score >= 10000 */}
-              {getCurrentPlayerBest() >= 10000 && (
-                <div className="relative animate-float" style={{ animationDelay: '0.5s' }}>
-                  {/* Achievement glow effect */}
-                  <div className="absolute inset-0 bg-gradient-radial from-orange-400/30 to-orange-400/0 blur-2xl"></div>
-                  
-                  {/* Achievement pulsing ring */}
-                  <div className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring bg-gradient-to-r from-orange-500 to-yellow-500"></div>
-                  
+              {/* Admin Panel - Only visible to contract owner */}
+              {isOwner && (
+                <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-red-800 to-red-900 p-4 border-2 border-red-500/30">
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-transparent"></div>
+                  <p className="font-['Press_Start_2P'] text-sm text-red-300 mb-2 relative z-10">ADMIN PANEL</p>
                   <button
-                    onClick={mintAchievement}
-                    className="relative px-6 py-3 rounded-xl font-['Press_Start_2P'] text-sm text-white shadow-lg 
-                              transition-all duration-300 border-2 transform hover:scale-105 
-                              z-10 min-w-[200px] overflow-hidden bg-gradient-to-bottom from-orange-500 to-orange-700
-                              border-orange-400"
-                    style={{
-                      boxShadow: `0 0 20px rgba(251, 146, 60, 0.5)`
-                    }}
+                    onClick={batchUpdateScores}
+                    className="px-3 py-2 bg-red-900/80 rounded border border-red-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-red-800/80 transition-colors relative z-10"
                   >
-                    {/* Achievement shine effects */}
-                    <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
-                    
-                    <span className="relative">MINT ACHIEVEMENT 🏆</span>
+                    SYNC SCORES
                   </button>
-                  
-                  {/* Achievement description */}
-                  <p className="font-['Press_Start_2P'] text-xs mt-2 text-center text-orange-300">
-                    Elite Player Achievement
+                  <p className="text-xs text-red-200 mt-1 relative z-10">
+                    Update on-chain scores
                   </p>
                 </div>
               )}
             </div>
-            
-            {/* Enhanced floating text with glow - shows user's eligible tier */}
-            <p className="font-['Press_Start_2P'] text-xs mt-4 animate-bounce relative text-center" style={{ color: getNFTTier(getCurrentPlayerBest()).color }}>
-              <span className="absolute inset-0 blur-sm" style={{ color: getNFTTier(getCurrentPlayerBest()).color }}>
-                {getNFTTier(getCurrentPlayerBest()).tier} Tier - Best Score: {getCurrentPlayerBest()}
-              </span>
-              <span className="relative">
-                {getNFTTier(getCurrentPlayerBest()).tier} Tier - Best Score: {getCurrentPlayerBest()}
-              </span>
-            </p>
-            
-            {/* Security notice */}
-            <p className="font-['Press_Start_2P'] text-xs text-purple-300 mt-2 text-center opacity-80">
-              Secured by game signature ✅
-            </p>
-            
-            {/* Wallet address display */}
-            {address && (
-              <p className="font-['Press_Start_2P'] text-xs text-purple-300 mt-1 text-center">
-                {address.slice(0, 8)}...{address.slice(-6)}
-              </p>
-            )}
           </div>
-        )}
+
+          {/* Leaderboard Column - Right Side */}
+          <div className="xl:sticky xl:top-8">
+            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-4 border-2 border-yellow-500/30 h-[600px] flex flex-col">
+              <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent"></div>
+              <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-4 relative z-10">🏆 LIVE LEADERBOARD</h3>
+              
+              <div className="flex-1 space-y-2 relative z-10 overflow-y-auto pr-2">
+                {leaderboard.length > 0 ? (
+                  leaderboard.map((entry, index) => (
+                    <div 
+                      key={`${entry.address}-${entry.timestamp}`} 
+                      className={`flex justify-between items-center p-2 rounded border transition-all ${
+                        address && entry.address.toLowerCase() === address.toLowerCase()
+                          ? 'bg-yellow-900/60 border-yellow-400/50 shadow-lg'
+                          : 'bg-slate-900/60 border-yellow-500/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xs font-['Press_Start_2P'] w-6 ${
+                          index === 0 ? 'text-yellow-400' : 
+                          index === 1 ? 'text-gray-300' : 
+                          index === 2 ? 'text-amber-600' : 'text-gray-400'
+                        }`}>
+                          #{index + 1}
+                        </span>
+                        <span className="text-white text-xs font-['Press_Start_2P']">
+                          {entry.address.slice(0, 6)}...{entry.address.slice(-4)}
+                        </span>
+                        <span 
+                          className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded"
+                          style={{ color: getNFTTier(entry.score).color, backgroundColor: `${getNFTTier(entry.score).color}20` }}
+                        >
+                          {entry.tier.slice(0, 3)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-yellow-300 text-xs font-['Press_Start_2P']">{entry.score}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center text-gray-400 text-xs font-['Press_Start_2P'] mt-8">
+                    No scores yet. Be the first! 🚀
+                  </div>
+                )}
+              </div>
+              
+              <div className="mt-4 pt-4 border-t border-yellow-500/20 relative z-10">
+                <button
+                  onClick={fetchLeaderboard}
+                  className="w-full px-3 py-2 bg-yellow-900/80 rounded border border-yellow-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-yellow-800/80 transition-colors"
+                >
+                  🔄 REFRESH
+                </button>
+                
+                {/* Leaderboard Stats */}
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-yellow-200">
+                    Total Players: {leaderboard.length}
+                  </p>
+                  {address && (() => {
+                    const playerRank = leaderboard.findIndex(entry => 
+                      entry.address.toLowerCase() === address.toLowerCase()) + 1;
+                    return playerRank > 0 && (
+                      <p className="text-xs text-yellow-300 font-['Press_Start_2P']">
+                        Your Rank: #{playerRank}
+                      </p>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Game Status Messages */}
         <div className="text-center mt-8">
@@ -1640,6 +1609,19 @@ const FlappyBTCChart: React.FC = () => {
         @keyframes spinY {
           from { transform: rotateY(0deg); }
           to { transform: rotateY(360deg); }
+        }
+        @keyframes pixelBlink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0; }
+        }
+        
+        @keyframes shimmer {
+          0% { transform: translateX(-200%) rotate(35deg); }
+          100% { transform: translateX(200%) rotate(35deg); }
+        }
+        @keyframes sparkle {
+          0%, 100% { opacity: 0; transform: scale(0); }
+          50% { opacity: 1; transform: scale(1); }
         }
         
         /* 3D Logo Animation Styles */
@@ -1736,6 +1718,11 @@ const FlappyBTCChart: React.FC = () => {
           text-shadow: 0 0 5px rgba(168, 85, 247, 0.8),
                      0 0 10px rgba(168, 85, 247, 0.5),
                      0 0 15px rgba(168, 85, 247, 0.3);
+        }
+        .pixel-text {
+          image-rendering: pixelated;
+          image-rendering: -moz-crisp-edges;
+          image-rendering: crisp-edges;
         }
       `}</style>
     </div>
