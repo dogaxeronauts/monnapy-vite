@@ -89,7 +89,6 @@ const FlappyBTCChart: React.FC = () => {
   const [combo, setCombo] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
-  const [isOwner, setIsOwner] = useState(false);
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const { isConnected, address } = useAccount();
@@ -125,31 +124,6 @@ const FlappyBTCChart: React.FC = () => {
     
     setPlayerScores(savedScores);
     setHighScore(savedHighScore);
-
-    // Check if current address is contract owner
-    const checkOwner = async () => {
-      if (!address || !isConnected) {
-        setIsOwner(false);
-        return;
-      }
-
-      try {
-        const abi = ["function owner() external view returns (address)"];
-        const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const contract = new ethers.Contract(contractAddress, abi, provider);
-        
-        const owner = await contract.owner();
-        setIsOwner(address.toLowerCase() === owner.toLowerCase());
-      } catch (error) {
-        console.error("Error checking owner:", error);
-        setIsOwner(false);
-      }
-    };
-
-    if (isConnected && address) {
-      checkOwner();
-    }
   }, [address, isConnected]);
 
   // Get current player's best score
@@ -158,17 +132,17 @@ const FlappyBTCChart: React.FC = () => {
     return playerScores[address] || 0;
   };
 
-  // Get NFT tier based on score (updated for contract tiers)
+  // Get NFT tier based on score (matches contract enum exactly)
   const getNFTTier = (score: number) => {
-    if (score >= 20000) return { tier: 'MYTHIC', color: '#FF00FF', requirement: 20000 };      // Tier 0
-    if (score >= 17500) return { tier: 'LEGENDARY', color: '#FFD700', requirement: 17500 };   // Tier 1
-    if (score >= 15000) return { tier: 'DIAMOND', color: '#B9F2FF', requirement: 15000 };     // Tier 2
-    if (score >= 12500) return { tier: 'PLATINUM', color: '#E5E4E2', requirement: 12500 };    // Tier 3
-    if (score >= 10000) return { tier: 'GOLD', color: '#FFD700', requirement: 10000 };        // Tier 4
-    if (score >= 7500) return { tier: 'SILVER', color: '#C0C0C0', requirement: 7500 };        // Tier 5
-    if (score >= 4500) return { tier: 'BRONZE', color: '#CD7F32', requirement: 4500 };        // Tier 6
-    if (score >= 750) return { tier: 'REGULAR', color: '#10B981', requirement: 750 };         // Tier 7
-    return { tier: 'NOT_ELIGIBLE', color: '#6B7280', requirement: 750 };
+    if (score >= 20000) return { tier: 'MYTHIC', color: '#FF00FF', requirement: 20000, enumValue: 8 };      // Tier.Mythic
+    if (score >= 17500) return { tier: 'LEGENDARY', color: '#FFD700', requirement: 17500, enumValue: 7 };   // Tier.Legendary
+    if (score >= 15000) return { tier: 'DIAMOND', color: '#B9F2FF', requirement: 15000, enumValue: 6 };     // Tier.Diamond
+    if (score >= 12500) return { tier: 'PLATINUM', color: '#E5E4E2', requirement: 12500, enumValue: 5 };    // Tier.Platinum
+    if (score >= 10000) return { tier: 'GOLD', color: '#FFD700', requirement: 10000, enumValue: 4 };        // Tier.Gold
+    if (score >= 7500) return { tier: 'SILVER', color: '#C0C0C0', requirement: 7500, enumValue: 3 };        // Tier.Silver
+    if (score >= 4500) return { tier: 'BRONZE', color: '#CD7F32', requirement: 4500, enumValue: 2 };        // Tier.Bronze
+    if (score >= 750) return { tier: 'REGULAR', color: '#10B981', requirement: 750, enumValue: 1 };         // Tier.Regular
+    return { tier: 'NONE', color: '#6B7280', requirement: 750, enumValue: 0 };                              // Tier.None
   };
 
   const spawnPowerUp = () => {
@@ -871,293 +845,137 @@ const FlappyBTCChart: React.FC = () => {
     };
   }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address, playerScores]); // Added address and playerScores for live updates
 
-  // Function to get game signature from backend
-  const getGameSignature = async (playerAddress: string, finalScore: number) => {
-    try {
-      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-signature`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          address: playerAddress,
-          score: finalScore
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      return result;
-    } catch (error) {
-      console.error('Failed to get game signature:', error);
-      throw new Error('Failed to get game authorization. Please try again.');
-    }
-  };
-
-  // Function to get achievement signature
-  const getAchievementSignature = async (playerAddress: string, finalScore: number) => {
-    try {
-      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-achievement-signature`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          address: playerAddress,
-          score: finalScore
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      return result;
-    } catch (error) {
-      console.error('Failed to get achievement signature:', error);
-      throw new Error('Failed to get achievement authorization. Please try again.');
-    }
-  };
-
+  // ScoreTierNFT minting function - with error handling for contract issues
   const mintNFT = async () => {
     if (!isConnected || !walletClient || !address) {
-      alert("Please connect your wallet first!");
+      alert("Please connect your wallet!");
       return;
     }
 
     try {
       const currentPlayerBest = getCurrentPlayerBest();
-      const nftTier = getNFTTier(currentPlayerBest);
       
-      // Security check: User can only mint their exact tier based on their best score
+      // Check if score is eligible for minting
       if (currentPlayerBest < 750) {
-        alert("Your best score is too low to mint any NFT! Need at least 750 points.");
+        alert("Your score is too low to mint NFT! At least 750 points required.");
         return;
       }
 
-      // Contract ABI with new signature-based minting
+      // ScoreTierNFT Contract ABI - matches your contract exactly
       const abi = [
-        "function mint(bytes calldata signature) external payable",
-        "function getUserTier(address user) external view returns (uint256)",
-        "function scoreOf(address user) external view returns (uint256)",
-        "function tiers(uint256 tier) external view returns (uint256 minScore, uint256 maxScore, uint256 maxSupply, uint256 price, uint256 minted)",
-        "function saleActive() external view returns (bool)",
-        "function hasMintedTier(address user, uint256 tier) external view returns (bool)"
+        "function mint(uint256 score) external",
+        "function getTier(uint256 score) external pure returns (uint8)",
+        "function tokenTier(uint256 tokenId) external view returns (uint8)",
+        "function nextTokenId() external view returns (uint256)",
+        "function balanceOf(address owner) external view returns (uint256)"
       ];
       
       const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
 
+      if (!window.ethereum) {
+        alert("Please install MetaMask!");
+        return;
+      }
+
+      await window.ethereum.request({ method: "eth_requestAccounts" });
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // Check if sale is active
-      const saleActive = await contract.saleActive();
-      if (!saleActive) {
-        alert("NFT sale is not currently active!");
-        return;
+      // Local tier calculation - matches contract enum exactly
+      const getTierNameFromScore = (score: number) => {
+        if (score >= 20000) return "Mythic";      // Tier.Mythic (8)
+        if (score >= 17500) return "Legendary";   // Tier.Legendary (7)
+        if (score >= 15000) return "Diamond";     // Tier.Diamond (6)
+        if (score >= 12500) return "Platinum";    // Tier.Platinum (5)
+        if (score >= 10000) return "Gold";        // Tier.Gold (4)
+        if (score >= 7500) return "Silver";       // Tier.Silver (3)
+        if (score >= 4500) return "Bronze";       // Tier.Bronze (2)
+        if (score >= 750) return "Regular";       // Tier.Regular (1)
+        return "None";                             // Tier.None (0)
+      };
+
+      const tierName = getTierNameFromScore(currentPlayerBest);
+
+      // Try to get tier from contract, but fallback to local calculation
+      let contractTierNumber = 0;
+      try {
+        console.log("Trying to call getTier on contract:", contractAddress);
+        contractTierNumber = await contract.getTier(currentPlayerBest);
+        console.log("Contract returned tier:", contractTierNumber);
+        
+        // Contract returns 0 for Tier.None (score too low)
+        if (contractTierNumber === 0) {
+          alert("Contract says your score is too low! (Tier.None)");
+          return;
+        }
+      } catch (contractError) {
+        console.error("Contract getTier failed:", contractError);
+        
+        // Check if contract exists by trying to get code
+        const code = await provider.getCode(contractAddress);
+        if (code === "0x") {
+          alert(`Error: Contract address ${contractAddress} not found or not deployed yet!\n\nPlease update the correct contract address in config.ts file.`);
+          return;
+        }
+        
+        // Contract exists but getTier failed, maybe wrong ABI or function doesn't exist
+        alert(`Contract found but getTier function not working. Is the contract deployed correctly?\n\nWill still try to mint ${tierName} tier NFT...`);
       }
-
-      // Check user's on-chain score
-      const onChainScore = await contract.scoreOf(address);
-      if (Number(onChainScore) < currentPlayerBest) {
-        alert(`Your on-chain score (${onChainScore}) is lower than your local best (${currentPlayerBest}). Please wait for score sync or contact admin.`);
-        return;
-      }
-
-      // Get tier information
-      const tierIndex = getTierNumber(currentPlayerBest);
-      const tierInfo = await contract.tiers(tierIndex);
-      const [, , maxSupply, price, minted] = tierInfo;
-
-      // Check if tier is sold out
-      if (Number(minted) >= Number(maxSupply)) {
-        alert(`${nftTier.tier} tier is sold out!`);
-        return;
-      }
-
-      // Check if user already minted this tier
-      const alreadyMinted = await contract.hasMintedTier(address, tierIndex);
-      if (alreadyMinted) {
-        alert(`You have already minted a ${nftTier.tier} NFT!`);
-        return;
-      }
-
-      // Get game signature from backend - THIS IS THE KEY SECURITY FEATURE
-      alert("Getting game authorization...");
-      const signatureResult = await getGameSignature(address, currentPlayerBest);
       
-      if (!signatureResult || !signatureResult.signature) {
-        alert("Failed to get game authorization. You can only mint through the game!");
-        return;
-      }
-
-      // Mint NFT with signature - only possible through game backend
-      alert("Minting NFT with game authorization...");
-      const tx = await contract.mint(signatureResult.signature, { value: price });
-      await tx.wait();
+      const confirmMint = window.confirm(
+        `You will mint ${tierName} tier NFT with ${currentPlayerBest} points. Do you confirm?\n\nContract address: ${contractAddress}`
+      );
       
-      alert(`${nftTier.tier} NFT minted successfully! 🎉 (Based on your best score: ${currentPlayerBest})`);
-    } catch (err) {
-      if (err instanceof Error) {
-        if (err.message.includes("TieredNFT: Invalid signature")) {
-          alert("Invalid game authorization! You can only mint through the official game.");
-        } else if (err.message.includes("TieredNFT: Already minted")) {
-          alert("You have already minted an NFT for this tier!");
-        } else if (err.message.includes("TieredNFT: Tier sold out")) {
-          alert("This tier is sold out!");
-        } else if (err.message.includes("TieredNFT: Wrong payment")) {
-          alert("Incorrect payment amount!");
-        } else if (err.message.includes("TieredNFT: No eligible tier")) {
-          alert("Your score doesn't qualify for any tier.");
-        } else if (err.message.includes("Failed to get game authorization")) {
-          alert(err.message);
+      if (!confirmMint) return;
+
+      alert("NFT minting process starting...");
+      
+      try {
+        // Check network first
+        const network = await provider.getNetwork();
+        if (network.chainId !== 10143n) {
+          alert(`❌ Wrong network! Switch to Monad Testnet (Chain ID: 10143).\nCurrently: ${network.chainId}\n\nPlease select Monad Testnet in MetaMask.`);
+          return;
+        }
+
+        // Try to mint NFT with the player's best score
+        const tx = await contract.mint(currentPlayerBest);
+        alert("🚀 Mint transaction sent!\nHash: " + tx.hash.slice(0, 20) + "...");
+        
+        const receipt = await tx.wait();
+        if (receipt.status === 1) {
+          alert(`🎉 ${tierName} NFT successfully minted!\n\nScore: ${currentPlayerBest}\nTx: ${tx.hash}`);
         } else {
-          alert("Error minting NFT: " + err.message);
+          alert("❌ Transaction failed!");
+        }
+      } catch (mintError) {
+        console.error("Mint failed:", mintError);
+        if (mintError instanceof Error) {
+          if (mintError.message.includes("Score too low")) {
+            alert("Contract error: Score too low!");
+          } else if (mintError.message.includes("execution reverted")) {
+            alert("Contract error: Transaction reverted. Is the contract working correctly?");
+          } else {
+            alert("Mint error: " + mintError.message);
+          }
+        } else {
+          alert("Mint error: " + String(mintError));
+        }
+      }
+      
+    } catch (err) {
+      console.error("General error:", err);
+      if (err instanceof Error) {
+        if (err.message.includes("user rejected")) {
+          alert("Transaction cancelled by user.");
+        } else if (err.message.includes("could not decode result data")) {
+          alert("Contract error: Function not found or contract deployed incorrectly!");
+        } else {
+          alert("Error: " + err.message);
         }
       } else {
-        alert("Error minting NFT: " + String(err));
-      }
-    }
-  };
-
-  // Achievement mint function
-  const mintAchievement = async () => {
-    if (!isConnected || !walletClient || !address) {
-      alert("Please connect your wallet first!");
-      return;
-    }
-
-    try {
-      const currentPlayerBest = getCurrentPlayerBest();
-      
-      // Check achievement eligibility (score >= 10000)
-      if (currentPlayerBest < 10000) {
-        alert("Your best score is too low for achievement NFT! Need at least 10,000 points.");
-        return;
-      }
-
-      // Contract ABI for achievement minting
-      const abi = [
-        "function mintAchievement(bytes calldata signature) external",
-        "function scoreOf(address user) external view returns (uint256)",
-        "function hasMintedAchievement(address user) external view returns (bool)"
-      ];
-      
-      const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
-
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(contractAddress, abi, signer);
-
-      // Check if user already minted achievement
-      const alreadyMinted = await contract.hasMintedAchievement(address);
-      if (alreadyMinted) {
-        alert("You have already minted an achievement NFT!");
-        return;
-      }
-
-      // Check user's on-chain score
-      const onChainScore = await contract.scoreOf(address);
-      if (Number(onChainScore) < 10000) {
-        alert(`Your on-chain score (${onChainScore}) is too low for achievement NFT. Please wait for score sync or contact admin.`);
-        return;
-      }
-
-      // Get achievement signature from backend
-      alert("Getting achievement authorization...");
-      const signatureResult = await getAchievementSignature(address, currentPlayerBest);
-      
-      if (!signatureResult || !signatureResult.signature) {
-        alert("Failed to get achievement authorization. You can only mint through the game!");
-        return;
-      }
-
-      // Mint achievement NFT
-      alert("Minting achievement NFT...");
-      const tx = await contract.mintAchievement(signatureResult.signature);
-      await tx.wait();
-      
-      alert(`Achievement NFT minted successfully! 🏆 (Score: ${currentPlayerBest})`);
-    } catch (err) {
-      if (err instanceof Error) {
-        if (err.message.includes("TieredNFT: Invalid signature")) {
-          alert("Invalid game authorization! You can only mint through the official game.");
-        } else if (err.message.includes("TieredNFT: Already minted achv")) {
-          alert("You have already minted an achievement NFT!");
-        } else if (err.message.includes("TieredNFT: Score too low")) {
-          alert("Your on-chain score is too low for achievement NFT.");
-        } else {
-          alert("Error minting achievement NFT: " + err.message);
-        }
-      } else {
-        alert("Error minting achievement NFT: " + String(err));
-      }
-    }
-  };
-
-  // Convert score to tier number for contract
-  const getTierNumber = (score: number) => {
-    if (score >= 20000) return 0; // Mythic
-    if (score >= 17500) return 1; // Legendary  
-    if (score >= 15000) return 2; // Diamond
-    if (score >= 12500) return 3; // Platinum
-    if (score >= 10000) return 4; // Gold
-    if (score >= 7500) return 5;  // Silver
-    if (score >= 4500) return 6;  // Bronze
-    if (score >= 750) return 7;   // Regular
-    return 7; // Default to Regular
-  };
-
-  // Admin function to batch update scores on-chain
-  const batchUpdateScores = async () => {
-    if (!isConnected || !walletClient) {
-      alert("Please connect your wallet first!");
-      return;
-    }
-
-    try {
-      const abi = [
-        "function batchSetScores(address[] calldata users, uint256[] calldata scores) external",
-        "function owner() external view returns (address)"
-      ];
-      
-      const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(contractAddress, abi, signer);
-
-      // Check if caller is owner
-      const owner = await contract.owner();
-      if (address?.toLowerCase() !== owner.toLowerCase()) {
-        alert("Only contract owner can update scores!");
-        return;
-      }
-
-      // Get all player scores from localStorage
-      const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-      const addresses = Object.keys(savedScores);
-      const scores = Object.values(savedScores);
-
-      if (addresses.length === 0) {
-        alert("No scores to update!");
-        return;
-      }
-
-      // Update scores on-chain
-      const tx = await contract.batchSetScores(addresses, scores);
-      await tx.wait();
-      
-      alert(`Successfully updated ${addresses.length} player scores on-chain! 🎉`);
-    } catch (err) {
-      if (err instanceof Error) {
-        alert("Error updating scores: " + err.message);
-      } else {
-        alert("Error updating scores: " + String(err));
+        alert("Error: " + String(err));
       }
     }
   };
@@ -1451,23 +1269,6 @@ const FlappyBTCChart: React.FC = () => {
                   </p>
                 </div>
               </div>
-
-              {/* Admin Panel - Only visible to contract owner */}
-              {isOwner && (
-                <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-red-800 to-red-900 p-4 border-2 border-red-500/30">
-                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 to-transparent"></div>
-                  <p className="font-['Press_Start_2P'] text-sm text-red-300 mb-2 relative z-10">ADMIN PANEL</p>
-                  <button
-                    onClick={batchUpdateScores}
-                    className="px-3 py-2 bg-red-900/80 rounded border border-red-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-red-800/80 transition-colors relative z-10"
-                  >
-                    SYNC SCORES
-                  </button>
-                  <p className="text-xs text-red-200 mt-1 relative z-10">
-                    Update on-chain scores
-                  </p>
-                </div>
-              )}
             </div>
           </div>
 

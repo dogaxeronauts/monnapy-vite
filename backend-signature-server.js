@@ -209,6 +209,94 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: Date.now() });
 });
 
+// In-memory leaderboard storage (use database in production)
+let leaderboard = [];
+
+// Submit score to leaderboard
+app.post('/api/leaderboard', (req, res) => {
+  try {
+    const { address, score, timestamp, tier } = req.body;
+    
+    if (!address || !score || !timestamp || !tier) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate Ethereum address format
+    if (!ethers.isAddress(address)) {
+      return res.status(400).json({ error: 'Invalid Ethereum address' });
+    }
+
+    // Validate score
+    if (typeof score !== 'number' || score < 0) {
+      return res.status(400).json({ error: 'Invalid score' });
+    }
+
+    // Find existing entry for this address
+    const existingIndex = leaderboard.findIndex(entry => entry.address.toLowerCase() === address.toLowerCase());
+    
+    if (existingIndex !== -1) {
+      // Update if new score is higher
+      if (score > leaderboard[existingIndex].score) {
+        leaderboard[existingIndex] = { address, score, timestamp, tier };
+      }
+    } else {
+      // Add new entry
+      leaderboard.push({ address, score, timestamp, tier });
+    }
+
+    // Sort by score (highest first) and keep top 100
+    leaderboard.sort((a, b) => b.score - a.score);
+    leaderboard = leaderboard.slice(0, 100);
+
+    res.json({ success: true, rank: leaderboard.findIndex(entry => entry.address.toLowerCase() === address.toLowerCase()) + 1 });
+  } catch (error) {
+    console.error('Error submitting to leaderboard:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get leaderboard
+app.get('/api/leaderboard', (req, res) => {
+  try {
+    // Return top 10 by default, or specified limit
+    const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+    const topScores = leaderboard.slice(0, limit);
+    
+    res.json(topScores);
+  } catch (error) {
+    console.error('Error fetching leaderboard:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get specific player rank
+app.get('/api/leaderboard/player/:address', (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    if (!ethers.isAddress(address)) {
+      return res.status(400).json({ error: 'Invalid Ethereum address' });
+    }
+
+    const playerIndex = leaderboard.findIndex(entry => entry.address.toLowerCase() === address.toLowerCase());
+    
+    if (playerIndex === -1) {
+      return res.json({ rank: null, score: 0, tier: 'NONE' });
+    }
+
+    const playerEntry = leaderboard[playerIndex];
+    res.json({
+      rank: playerIndex + 1,
+      score: playerEntry.score,
+      tier: playerEntry.tier,
+      timestamp: playerEntry.timestamp
+    });
+  } catch (error) {
+    console.error('Error fetching player rank:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get game signer address (for debugging)
 app.get('/api/game-signer', (req, res) => {
   const wallet = new ethers.Wallet(GAME_SIGNER_PRIVATE_KEY);

@@ -12,5 +12,5 @@ export const GAME_CONFIG = {
   BACKEND_URL: process.env.NODE_ENV === 'production' 
     ? 'https://your-backend-url.com' 
     : 'http://localhost:3001',
-  CONTRACT_ADDRESS: '0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4',
+  CONTRACT_ADDRESS: '0x8578163F8C29138ECc9B44A6592112A58c8f7c4d' // Update this with your actual deployed contract address
 };
