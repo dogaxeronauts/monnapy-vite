@@ -35,8 +35,23 @@ type RugPull = {
 type PowerUp = {
   x: number;
   y: number;
-  type: 'shield' | 'slowTime' | 'doublePoints';
+  type: 'shield' | 'slowTime' | 'doublePoints' | 'magnet' | 'invincibility' | 'jumpBoost' | 'scoreMultiplier';
   collected?: boolean;
+};
+
+type LeaderboardEntry = {
+  address: string;
+  score: number;
+  timestamp: number;
+  tier: string;
+};
+
+type GameStats = {
+  totalGamesPlayed: number;
+  totalTimePlayed: number;
+  powerUpsCollected: number;
+  candlesPassed: number;
+  bestCombo: number;
 };
 
 const FlappyBTCChart: React.FC = () => {
@@ -53,7 +68,20 @@ const FlappyBTCChart: React.FC = () => {
     shield?: { until: number };
     slowTime?: { until: number };
     doublePoints?: { until: number };
+    magnet?: { until: number };
+    invincibility?: { until: number };
+    jumpBoost?: { until: number };
+    scoreMultiplier?: { until: number };
   }>({});
+
+  const gameStartTimeRef = useRef<number>(0);
+  const gameStatsRef = useRef<GameStats>({
+    totalGamesPlayed: 0,
+    totalTimePlayed: 0,
+    powerUpsCollected: 0,
+    candlesPassed: 0,
+    bestCombo: 0
+  });
 
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState<boolean>(false);
@@ -62,8 +90,9 @@ const FlappyBTCChart: React.FC = () => {
   const [highScore, setHighScore] = useState(0);
   const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
   const [isOwner, setIsOwner] = useState(false);
-  const [lastTier, setLastTier] = useState<string>('NOT_ELIGIBLE');
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
 
@@ -107,7 +136,7 @@ const FlappyBTCChart: React.FC = () => {
 
       try {
         const abi = ["function owner() external view returns (address)"];
-        const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
+        const contractAddress = "0x8b25528419C36e7fA7b7Cf20272b65Ba41Fca8C4";
         const provider = new ethers.BrowserProvider(window.ethereum);
         const contract = new ethers.Contract(contractAddress, abi, provider);
         
@@ -144,7 +173,10 @@ const FlappyBTCChart: React.FC = () => {
   };
 
   const spawnPowerUp = () => {
-    const types: PowerUp['type'][] = ['shield', 'slowTime', 'doublePoints'];
+    const types: PowerUp['type'][] = [
+      'shield', 'slowTime', 'doublePoints', 'magnet', 
+      'invincibility', 'jumpBoost', 'scoreMultiplier'
+    ];
     const randomType = types[Math.floor(Math.random() * types.length)];
     const y = Math.random() * (GAME_HEIGHT - GROUND_HEIGHT - 100) + 50;
 
@@ -155,12 +187,68 @@ const FlappyBTCChart: React.FC = () => {
     });
   };
 
+  // Leaderboard API functions
+  const submitScoreToLeaderboard = async (playerAddress: string, finalScore: number) => {
+    try {
+      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          address: playerAddress,
+          score: finalScore,
+          timestamp: Date.now(),
+          tier: getNFTTier(finalScore).tier
+        }),
+      });
+      
+      if (response.ok) {
+        fetchLeaderboard();
+      }
+    } catch (error) {
+      console.log('Leaderboard submit failed:', error);
+    }
+  };
+
+  const fetchLeaderboard = async () => {
+    try {
+      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`);
+      if (response.ok) {
+        const data = await response.json();
+        setLeaderboard(data.slice(0, 10)); // Top 10
+      }
+    } catch (error) {
+      console.log('Leaderboard fetch failed:', error);
+    }
+  };
+
+  // Load leaderboard on component mount
+  useEffect(() => {
+    fetchLeaderboard();
+    
+    // Load game stats from localStorage
+    const savedStats = localStorage.getItem('gameStats');
+    if (savedStats) {
+      gameStatsRef.current = JSON.parse(savedStats);
+    }
+  }, []);
+
   const resetGame = () => {
-    setScore(0); // Başlangıç skoru 0 olmalı
+    // Save game stats before reset
+    if (gameStarted) {
+      gameStatsRef.current.totalGamesPlayed += 1;
+      gameStatsRef.current.totalTimePlayed += Date.now() - gameStartTimeRef.current;
+      if (combo > gameStatsRef.current.bestCombo) {
+        gameStatsRef.current.bestCombo = combo;
+      }
+      localStorage.setItem('gameStats', JSON.stringify(gameStatsRef.current));
+    }
+    
+    setScore(0);
     setGameOver(false);
     setGameStarted(false);
     setCombo(0);
-    setLastTier('NOT_ELIGIBLE');
     setTierUpgradeTime(0);
     birdYRef.current = GAME_HEIGHT / 2;
     velocityRef.current = 0;
@@ -185,8 +273,15 @@ const FlappyBTCChart: React.FC = () => {
       return;
     }
 
-    if (!gameStarted) setGameStarted(true);
-    velocityRef.current = JUMP_FORCE;
+    if (!gameStarted) {
+      setGameStarted(true);
+      gameStartTimeRef.current = Date.now();
+    }
+    
+    // Apply jump boost effect
+    const hasJumpBoost = (activeEffectsRef.current.jumpBoost?.until ?? 0) > Date.now();
+    const jumpForce = hasJumpBoost ? JUMP_FORCE * 1.3 : JUMP_FORCE;
+    velocityRef.current = jumpForce;
   };
 
   const spawnCandle = () => {
@@ -273,20 +368,40 @@ const FlappyBTCChart: React.FC = () => {
         switch(p.type) {
           case 'shield':
             color = "#3b82f6"; // blue
-            icon = "S";
+            icon = "🛡";
             break;
           case 'slowTime':
             color = "#8b5cf6"; // purple
-            icon = "T";
+            icon = "⏱";
             break;
           case 'doublePoints':
             color = "#f59e0b"; // amber
-            icon = "2x";
+            icon = "2×";
+            break;
+          case 'magnet':
+            color = "#ec4899"; // pink
+            icon = "🧲";
+            break;
+          case 'invincibility':
+            color = "#10b981"; // emerald
+            icon = "⭐";
+            break;
+          case 'jumpBoost':
+            color = "#06b6d4"; // cyan
+            icon = "⬆";
+            break;
+          case 'scoreMultiplier':
+            color = "#f97316"; // orange
+            icon = "3×";
             break;
         }
 
         // Draw power-up background with glow effect
+        ctx.save();
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
         drawPixelRect(p.x - actualSize/2, p.y - actualSize/2, actualSize, actualSize, color);
+        ctx.restore();
         
         // Draw icon
         ctx.fillStyle = "#fff";
@@ -368,29 +483,87 @@ const FlappyBTCChart: React.FC = () => {
         ctx.fillRect(x + width - 2, y, 2, height); // Right
       };
 
-      // Enhanced Score display with live updates
-      drawRetroPanel(10, 10, 250, 60);
+      // Unified Score Panel - Minimal design with better spacing
+      const playerBest = getCurrentPlayerBest();
+      const panelWidth = 400;
+      const panelHeight = playerBest > 0 && playerBest >= 750 ? 95 : (playerBest > 0 ? 75 : 50);
       
-      // Main score with pulsing effect for score changes
+      drawRetroPanel(10, 10, panelWidth, panelHeight);
+      
+      // Main score with pulsing effect
       const scoreFlash = Math.sin(Date.now() * 0.02) * 0.3 + 0.7;
       ctx.fillStyle = `rgb(${254 * scoreFlash}, ${240 * scoreFlash}, ${138})`;
-      ctx.font = "24px 'Press Start 2P'";
+      ctx.font = "18px 'Press Start 2P'";
       ctx.textAlign = "left";
-      ctx.fillText(`SCORE: ${score}`, 20, 35);
+      ctx.fillText(`SCORE: ${score}`, 20, 32);
       
-      // Current tier indicator
+      // Current tier indicator (only show if eligible)
       if (score >= 750) {
         const currentTier = getNFTTier(score);
         ctx.fillStyle = currentTier.color;
-        ctx.font = "12px 'Press Start 2P'";
-        ctx.fillText(`${currentTier.tier}`, 20, 52);
-      } else {
-        ctx.fillStyle = "#6B7280";
-        ctx.font = "12px 'Press Start 2P'";
-        ctx.fillText("NO TIER", 20, 52);
+        ctx.font = "9px 'Press Start 2P'";
+        ctx.fillText(`${currentTier.tier}`, 20, 46);
       }
 
-      // Enhanced Combo display with flash effect and score bonus info
+      // Vertical divider line
+      ctx.fillStyle = "#4B5563";
+      ctx.fillRect(210, 15, 2, panelHeight - 10);
+
+      // Best score section (right side)
+      if (playerBest > 0) {
+        // Best score
+        ctx.fillStyle = "#a78bfa";
+        ctx.font = "14px 'Press Start 2P'";
+        ctx.textAlign = "left";
+        ctx.fillText(`BEST: ${playerBest}`, 220, 32);
+        
+        // Progress indicator - only show essential info
+        const progress = Math.min((score / playerBest) * 100, 100);
+        ctx.font = "9px 'Press Start 2P'";
+        
+        if (score > playerBest) {
+          ctx.fillStyle = "#10b981";
+          ctx.fillText(`NEW RECORD! +${score - playerBest}`, 220, 46);
+        } else {
+          ctx.fillStyle = "#6b7280";
+          const progressText = `${progress.toFixed(0)}% | Need: ${playerBest - score}`;
+          // Uzun text için truncate
+          const maxWidth = 170;
+          const textWidth = ctx.measureText(progressText).width;
+          if (textWidth > maxWidth) {
+            ctx.fillText(`${progress.toFixed(0)}%`, 220, 46);
+          } else {
+            ctx.fillText(progressText, 220, 46);
+          }
+        }
+        
+        // Eligible tier from best score
+        const bestTier = getNFTTier(playerBest);
+        if (playerBest >= 750) {
+          ctx.fillStyle = bestTier.color;
+          ctx.font = "9px 'Press Start 2P'";
+          ctx.fillText(`ELIGIBLE: ${bestTier.tier}`, 220, 60);
+        }
+        
+        // Simple progress bar at bottom (only if there's space)
+        if (panelHeight > 70) {
+          const barWidth = 360;
+          const barHeight = 6;
+          const barX = 20;
+          const barY = panelHeight - 15;
+          
+          // Background
+          ctx.fillStyle = "#374151";
+          ctx.fillRect(barX, barY, barWidth, barHeight);
+          
+          // Progress fill
+          const progressWidth = (progress / 100) * barWidth;
+          ctx.fillStyle = score > playerBest ? "#10b981" : "#3b82f6";
+          ctx.fillRect(barX, barY, progressWidth, barHeight);
+        }
+      }
+
+      // Enhanced Combo display (moved to right side)
       if (combo > 0) {
         drawRetroPanel(GAME_WIDTH - 280, 10, 270, 60);
         const comboFlash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
@@ -405,41 +578,6 @@ const FlappyBTCChart: React.FC = () => {
         ctx.fillText(`+${combo * 50} BONUS!`, GAME_WIDTH - 20, 50);
       }
 
-      // Best Score and Progress Tracker (Top Right)
-      const playerBest = getCurrentPlayerBest();
-      if (playerBest > 0) {
-        drawRetroPanel(GAME_WIDTH - 220, 80, 210, 80);
-        
-        // Best score
-        ctx.fillStyle = "#a78bfa";
-        ctx.font = "14px 'Press Start 2P'";
-        ctx.textAlign = "right";
-        ctx.fillText(`BEST: ${playerBest}`, GAME_WIDTH - 10, 100);
-        
-        // Current progress vs best
-        const progress = Math.min((score / playerBest) * 100, 100);
-        ctx.fillStyle = score > playerBest ? "#10b981" : "#ef4444";
-        ctx.font = "12px 'Press Start 2P'";
-        
-        if (score > playerBest) {
-          ctx.fillText("NEW RECORD!", GAME_WIDTH - 10, 115);
-          ctx.fillStyle = "#fef08a";
-          ctx.fillText(`+${score - playerBest}`, GAME_WIDTH - 10, 130);
-        } else {
-          ctx.fillText(`${progress.toFixed(0)}% of best`, GAME_WIDTH - 10, 115);
-          ctx.fillStyle = "#6b7280";
-          ctx.fillText(`Need: ${playerBest - score}`, GAME_WIDTH - 10, 130);
-        }
-        
-        // Eligible tier from best score
-        const bestTier = getNFTTier(playerBest);
-        if (playerBest >= 750) {
-          ctx.fillStyle = bestTier.color;
-          ctx.font = "10px 'Press Start 2P'";
-          ctx.fillText(`ELIGIBLE: ${bestTier.tier}`, GAME_WIDTH - 10, 145);
-        }
-      }
-
       // Draw active effects (moved to left side)
       const effects = Object.entries(activeEffectsRef.current)
         .filter(([_, effect]) => effect.until > currentTime);
@@ -452,22 +590,38 @@ const FlappyBTCChart: React.FC = () => {
         switch(type) {
           case 'shield':
             color = "#3b82f6";
-            text = "SHIELD";
+            text = "🛡 SHIELD";
             break;
           case 'slowTime':
             color = "#8b5cf6";
-            text = "SLOW";
+            text = "⏱ SLOW TIME";
             break;
           case 'doublePoints':
             color = "#f59e0b";
-            text = "2X POINTS";
+            text = "2× POINTS";
+            break;
+          case 'magnet':
+            color = "#ec4899";
+            text = "🧲 MAGNET";
+            break;
+          case 'invincibility':
+            color = "#10b981";
+            text = "⭐ INVINCIBLE";
+            break;
+          case 'jumpBoost':
+            color = "#06b6d4";
+            text = "⬆ JUMP BOOST";
+            break;
+          case 'scoreMultiplier':
+            color = "#f97316";
+            text = "3× SCORE";
             break;
         }
 
-        ctx.font = "12px 'Press Start 2P', monospace";
+        ctx.font = "11px 'Press Start 2P', monospace";
         ctx.fillStyle = color;
         ctx.textAlign = "left";
-        ctx.fillText(`${text}: ${timeLeft}s`, 10, 80 + index * 20);
+        ctx.fillText(`${text}: ${timeLeft}s`, 10, 80 + index * 18);
       });
 
       // Tier upgrade notification
@@ -692,9 +846,16 @@ const FlappyBTCChart: React.FC = () => {
           .map((c) => {
             if (!c.passed && c.x + c.width < BIRD_X) {
               c.passed = true;
-              // Check if double points is active
+              gameStatsRef.current.candlesPassed += 1;
+              
+              // Calculate points with multipliers
               const hasDoublePoints = (activeEffectsRef.current.doublePoints?.until ?? 0) > currentTime;
-              const points = hasDoublePoints ? 200 : 100;
+              const hasScoreMultiplier = (activeEffectsRef.current.scoreMultiplier?.until ?? 0) > currentTime;
+              
+              let points = 100;
+              if (hasDoublePoints) points *= 2;
+              if (hasScoreMultiplier) points *= 3;
+              
               setScore((prev) => {
                 const newScore = prev + points;
                 
@@ -703,7 +864,6 @@ const FlappyBTCChart: React.FC = () => {
                 const previousTier = getNFTTier(prev);
                 
                 if (currentTier.tier !== previousTier.tier && newScore >= 750) {
-                  setLastTier(previousTier.tier);
                   setTierUpgradeTime(Date.now());
                 }
                 
@@ -725,14 +885,28 @@ const FlappyBTCChart: React.FC = () => {
         // Power-up collision and collection
         powerUpsRef.current = powerUpsRef.current
           .map((p) => {
+            // Magnet effect - attract nearby power-ups
+            if ((activeEffectsRef.current.magnet?.until ?? 0) > currentTime) {
+              const magnetRange = 80;
+              const dx = p.x - BIRD_X;
+              const dy = p.y - birdYRef.current;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              
+              if (dist < magnetRange && !p.collected) {
+                const pullForce = 0.3;
+                p.x -= (dx / dist) * pullForce * (magnetRange - dist);
+                p.y -= (dy / dist) * pullForce * (magnetRange - dist);
+              }
+            }
+            
             const dx = p.x - BIRD_X;
             const dy = p.y - birdYRef.current;
             const dist = Math.sqrt(dx * dx + dy * dy);
             
-            if (!p.collected && dist < BIRD_SIZE/2 + 10) {
+            if (!p.collected && dist < BIRD_SIZE/2 + 15) {
               p.collected = true;
+              gameStatsRef.current.powerUpsCollected += 1;
 
-              
               switch(p.type) {
                 case 'shield':
                   activeEffectsRef.current.shield = { until: currentTime + POWER_UP_DURATION };
@@ -743,19 +917,34 @@ const FlappyBTCChart: React.FC = () => {
                 case 'doublePoints':
                   activeEffectsRef.current.doublePoints = { until: currentTime + POWER_UP_DURATION };
                   break;
+                case 'magnet':
+                  activeEffectsRef.current.magnet = { until: currentTime + POWER_UP_DURATION };
+                  break;
+                case 'invincibility':
+                  activeEffectsRef.current.invincibility = { until: currentTime + POWER_UP_DURATION };
+                  break;
+                case 'jumpBoost':
+                  activeEffectsRef.current.jumpBoost = { until: currentTime + POWER_UP_DURATION };
+                  break;
+                case 'scoreMultiplier':
+                  activeEffectsRef.current.scoreMultiplier = { until: currentTime + POWER_UP_DURATION };
+                  break;
               }
             }
-            return p;
+            return { ...p, x: p.x - 3 }; // Move power-ups left
           })
-          .filter((p) => !p.collected);
+          .filter((p) => !p.collected && p.x > -30);
 
-        // Candle collision with shield check
+        // Candle collision with shield/invincibility check
         for (const c of candlesRef.current) {
           const hitX = BIRD_X + BIRD_SIZE/2 > c.x && BIRD_X - BIRD_SIZE/2 < c.x + c.width;
           const hitY = birdYRef.current + BIRD_SIZE/2 < c.low || birdYRef.current - BIRD_SIZE/2 > c.high;
           if (hitX && hitY) {
-            if ((activeEffectsRef.current.shield?.until ?? 0) > currentTime) {
-              // Remove the candle instead of game over when shielded
+            const hasShield = (activeEffectsRef.current.shield?.until ?? 0) > currentTime;
+            const hasInvincibility = (activeEffectsRef.current.invincibility?.until ?? 0) > currentTime;
+            
+            if (hasShield || hasInvincibility) {
+              // Remove the candle instead of game over when protected
               candlesRef.current = candlesRef.current.filter(candle => candle !== c);
               setCombo(prev => {
                 const newCombo = prev + 1;
@@ -767,6 +956,9 @@ const FlappyBTCChart: React.FC = () => {
               setGameOver(true);
               // Save player score when game ends
               savePlayerScore(score);
+              if (address) {
+                submitScoreToLeaderboard(address, score);
+              }
               return; // Stop game loop immediately when game over
             }
           }
@@ -818,19 +1010,16 @@ const FlappyBTCChart: React.FC = () => {
   }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address, playerScores]); // Added address and playerScores for live updates
 
   // Function to get game signature from backend
-  const getGameSignature = async (playerAddress: string, tierNumber: number, finalScore: number) => {
+  const getGameSignature = async (playerAddress: string, finalScore: number) => {
     try {
-      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-mint-signature`, {
+      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-signature`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          playerAddress,
-          tierNumber,
-          finalScore,
-          gameSessionId: Date.now(), // Unique session identifier
-          timestamp: Math.floor(Date.now() / 1000)
+          address: playerAddress,
+          score: finalScore
         }),
       });
 
@@ -839,10 +1028,36 @@ const FlappyBTCChart: React.FC = () => {
       }
 
       const result = await response.json();
-      return result.signature;
+      return result;
     } catch (error) {
       console.error('Failed to get game signature:', error);
       throw new Error('Failed to get game authorization. Please try again.');
+    }
+  };
+
+  // Function to get achievement signature
+  const getAchievementSignature = async (playerAddress: string, finalScore: number) => {
+    try {
+      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/get-achievement-signature`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          address: playerAddress,
+          score: finalScore
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Backend error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Failed to get achievement signature:', error);
+      throw new Error('Failed to get achievement authorization. Please try again.');
     }
   };
 
@@ -862,13 +1077,14 @@ const FlappyBTCChart: React.FC = () => {
         return;
       }
 
-      // Contract ABI with signature-based minting
+      // Contract ABI with new signature-based minting
       const abi = [
-        "function mint(uint256 tier, bytes calldata signature) external payable",
+        "function mint(bytes calldata signature) external payable",
+        "function getUserTier(address user) external view returns (uint256)",
         "function scoreOf(address user) external view returns (uint256)",
-        "function tiers(uint256 tier) external view returns (uint256 price, uint16 totalSupply, uint16 maxSupply, uint16 startingIndex, uint8 mintsPerAddress, uint256 minScore, uint256 maxScore)",
-        "function saleIsActive() external view returns (bool)",
-        "function gameSigner() external view returns (address)"
+        "function tiers(uint256 tier) external view returns (uint256 minScore, uint256 maxScore, uint256 maxSupply, uint256 price, uint256 minted)",
+        "function saleActive() external view returns (bool)",
+        "function hasMintedTier(address user, uint256 tier) external view returns (bool)"
       ];
       
       const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
@@ -878,63 +1094,64 @@ const FlappyBTCChart: React.FC = () => {
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
       // Check if sale is active
-      const saleActive = await contract.saleIsActive();
+      const saleActive = await contract.saleActive();
       if (!saleActive) {
         alert("NFT sale is not currently active!");
         return;
       }
 
-      // Get tier number based on user's BEST score (not current game score)
-      const tierNumber = getTierNumber(currentPlayerBest);
-      
-      // Double check: Verify user's on-chain score matches their local best
+      // Check user's on-chain score
       const onChainScore = await contract.scoreOf(address);
-      const tierInfo = await contract.tiers(tierNumber);
-      const minScore = tierInfo.minScore;
-      const maxScore = tierInfo.maxScore;
-
-      // Extra security: Ensure user can only mint the tier they are eligible for
-      if (Number(onChainScore) < Number(minScore)) {
-        alert(`Your on-chain score (${onChainScore}) is too low for ${nftTier.tier} tier. Required: ${minScore}. Please wait for score sync or contact admin.`);
+      if (Number(onChainScore) < currentPlayerBest) {
+        alert(`Your on-chain score (${onChainScore}) is lower than your local best (${currentPlayerBest}). Please wait for score sync or contact admin.`);
         return;
       }
 
-      // Final security check: User cannot mint higher tiers than they deserve
-      if (currentPlayerBest < minScore || currentPlayerBest >= maxScore) {
-        alert(`You cannot mint ${nftTier.tier} tier! Your best score (${currentPlayerBest}) is not in the valid range (${minScore}-${maxScore-1}).`);
+      // Get tier information
+      const tierIndex = getTierNumber(currentPlayerBest);
+      const tierInfo = await contract.tiers(tierIndex);
+      const [, , maxSupply, price, minted] = tierInfo;
+
+      // Check if tier is sold out
+      if (Number(minted) >= Number(maxSupply)) {
+        alert(`${nftTier.tier} tier is sold out!`);
+        return;
+      }
+
+      // Check if user already minted this tier
+      const alreadyMinted = await contract.hasMintedTier(address, tierIndex);
+      if (alreadyMinted) {
+        alert(`You have already minted a ${nftTier.tier} NFT!`);
         return;
       }
 
       // Get game signature from backend - THIS IS THE KEY SECURITY FEATURE
       alert("Getting game authorization...");
-      const gameSignature = await getGameSignature(address, tierNumber, currentPlayerBest);
+      const signatureResult = await getGameSignature(address, currentPlayerBest);
       
-      if (!gameSignature) {
+      if (!signatureResult || !signatureResult.signature) {
         alert("Failed to get game authorization. You can only mint through the game!");
         return;
       }
 
-      // Get price (0.1 ETH for all tiers)
-      const price = tierInfo.price;
-
       // Mint NFT with signature - only possible through game backend
       alert("Minting NFT with game authorization...");
-      const tx = await contract.mint(tierNumber, gameSignature, { value: price });
+      const tx = await contract.mint(signatureResult.signature, { value: price });
       await tx.wait();
       
       alert(`${nftTier.tier} NFT minted successfully! 🎉 (Based on your best score: ${currentPlayerBest})`);
     } catch (err) {
       if (err instanceof Error) {
-        if (err.message.includes("Invalid or missing game signature")) {
+        if (err.message.includes("TieredNFT: Invalid signature")) {
           alert("Invalid game authorization! You can only mint through the official game.");
-        } else if (err.message.includes("Score not in this tier")) {
-          alert("Your score doesn't match this tier requirements.");
-        } else if (err.message.includes("Tier sold out")) {
+        } else if (err.message.includes("TieredNFT: Already minted")) {
+          alert("You have already minted an NFT for this tier!");
+        } else if (err.message.includes("TieredNFT: Tier sold out")) {
           alert("This tier is sold out!");
-        } else if (err.message.includes("Mint limit reached")) {
-          alert("You have reached the mint limit for this tier!");
-        } else if (err.message.includes("Send exactly")) {
+        } else if (err.message.includes("TieredNFT: Wrong payment")) {
           alert("Incorrect payment amount!");
+        } else if (err.message.includes("TieredNFT: No eligible tier")) {
+          alert("Your score doesn't qualify for any tier.");
         } else if (err.message.includes("Failed to get game authorization")) {
           alert(err.message);
         } else {
@@ -942,6 +1159,81 @@ const FlappyBTCChart: React.FC = () => {
         }
       } else {
         alert("Error minting NFT: " + String(err));
+      }
+    }
+  };
+
+  // Achievement mint function
+  const mintAchievement = async () => {
+    if (!isConnected || !walletClient || !address) {
+      alert("Please connect your wallet first!");
+      return;
+    }
+
+    try {
+      const currentPlayerBest = getCurrentPlayerBest();
+      
+      // Check achievement eligibility (score >= 10000)
+      if (currentPlayerBest < 10000) {
+        alert("Your best score is too low for achievement NFT! Need at least 10,000 points.");
+        return;
+      }
+
+      // Contract ABI for achievement minting
+      const abi = [
+        "function mintAchievement(bytes calldata signature) external",
+        "function scoreOf(address user) external view returns (uint256)",
+        "function hasMintedAchievement(address user) external view returns (bool)"
+      ];
+      
+      const contractAddress = GAME_CONFIG.CONTRACT_ADDRESS;
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+
+      // Check if user already minted achievement
+      const alreadyMinted = await contract.hasMintedAchievement(address);
+      if (alreadyMinted) {
+        alert("You have already minted an achievement NFT!");
+        return;
+      }
+
+      // Check user's on-chain score
+      const onChainScore = await contract.scoreOf(address);
+      if (Number(onChainScore) < 10000) {
+        alert(`Your on-chain score (${onChainScore}) is too low for achievement NFT. Please wait for score sync or contact admin.`);
+        return;
+      }
+
+      // Get achievement signature from backend
+      alert("Getting achievement authorization...");
+      const signatureResult = await getAchievementSignature(address, currentPlayerBest);
+      
+      if (!signatureResult || !signatureResult.signature) {
+        alert("Failed to get achievement authorization. You can only mint through the game!");
+        return;
+      }
+
+      // Mint achievement NFT
+      alert("Minting achievement NFT...");
+      const tx = await contract.mintAchievement(signatureResult.signature);
+      await tx.wait();
+      
+      alert(`Achievement NFT minted successfully! 🏆 (Score: ${currentPlayerBest})`);
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message.includes("TieredNFT: Invalid signature")) {
+          alert("Invalid game authorization! You can only mint through the official game.");
+        } else if (err.message.includes("TieredNFT: Already minted achv")) {
+          alert("You have already minted an achievement NFT!");
+        } else if (err.message.includes("TieredNFT: Score too low")) {
+          alert("Your on-chain score is too low for achievement NFT.");
+        } else {
+          alert("Error minting achievement NFT: " + err.message);
+        }
+      } else {
+        alert("Error minting achievement NFT: " + String(err));
       }
     }
   };
@@ -1086,13 +1378,34 @@ const FlappyBTCChart: React.FC = () => {
           
           <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-slate-800 to-slate-900 p-4 border-2 border-purple-500/30">
             <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent"></div>
-            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER BEST</p>
+            <p className="font-['Press_Start_2P'] text-sm text-purple-300 mb-2 relative z-10">PLAYER STATS</p>
             <p className="text-2xl text-yellow-300 font-['Press_Start_2P'] relative z-10">{getCurrentPlayerBest()}</p>
             {address && (
               <p className="text-xs text-purple-200 mt-1 relative z-10 break-all">
                 {address.slice(0, 6)}...{address.slice(-4)}
               </p>
             )}
+            
+            {/* Game Stats */}
+            <div className="mt-3 space-y-1 relative z-10">
+              <p className="text-xs text-purple-300">
+                Games: {gameStatsRef.current.totalGamesPlayed}
+              </p>
+              <p className="text-xs text-purple-300">
+                Power-ups: {gameStatsRef.current.powerUpsCollected}
+              </p>
+              <p className="text-xs text-purple-300">
+                Best Combo: {gameStatsRef.current.bestCombo}
+              </p>
+            </div>
+            
+            {/* Leaderboard Button */}
+            <button
+              onClick={() => setShowLeaderboard(!showLeaderboard)}
+              className="mt-3 px-3 py-2 bg-purple-900/80 rounded border border-purple-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-purple-800/80 transition-colors relative z-10 w-full"
+            >
+              {showLeaderboard ? '🏆 HIDE BOARD' : '🏆 LEADERBOARD'}
+            </button>
           </div>
 
           {/* Admin Panel - Only visible to contract owner */}
@@ -1113,50 +1426,131 @@ const FlappyBTCChart: React.FC = () => {
           )}
         </div>
 
+        {/* Leaderboard Panel */}
+        {showLeaderboard && (
+          <div className="mt-6 arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-4 border-2 border-yellow-500/30">
+            <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent"></div>
+            <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-4 relative z-10">🏆 LIVE LEADERBOARD</h3>
+            
+            <div className="space-y-2 relative z-10 max-h-64 overflow-y-auto">
+              {leaderboard.length > 0 ? (
+                leaderboard.map((entry, index) => (
+                  <div key={`${entry.address}-${entry.timestamp}`} className="flex justify-between items-center p-2 bg-slate-900/60 rounded border border-yellow-500/20">
+                    <div className="flex items-center gap-3">
+                      <span className="text-yellow-400 text-xs font-['Press_Start_2P'] w-6">#{index + 1}</span>
+                      <span className="text-white text-xs font-['Press_Start_2P']">
+                        {entry.address.slice(0, 6)}...{entry.address.slice(-4)}
+                      </span>
+                      <span 
+                        className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded"
+                        style={{ color: getNFTTier(entry.score).color, backgroundColor: `${getNFTTier(entry.score).color}20` }}
+                      >
+                        {entry.tier}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-yellow-300 text-xs font-['Press_Start_2P']">{entry.score}</span>
+                      <span className="text-gray-400 text-xs">
+                        {new Date(entry.timestamp).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-gray-400 text-xs font-['Press_Start_2P']">
+                  No scores yet. Be the first! 🚀
+                </div>
+              )}
+            </div>
+            
+            <button
+              onClick={fetchLeaderboard}
+              className="mt-4 px-3 py-2 bg-yellow-900/80 rounded border border-yellow-500/20 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-yellow-800/80 transition-colors"
+            >
+              🔄 REFRESH
+            </button>
+          </div>
+        )}
+
         {/* NFT Mint Button - Shows user's eligible tier based on their best score */}
         {gameOver && getCurrentPlayerBest() >= 750 && (
           <div className="fixed left-1/2 transform -translate-x-1/2 z-40" style={{ top: '70%' }}>
-            <div className="relative animate-float">
-              {/* Enhanced glow effect background */}
-              <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
-              
-              {/* Pulsing ring with tier color based on user's best score */}
-              <div 
-                className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring"
-                style={{ 
-                  background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}40, ${getNFTTier(getCurrentPlayerBest()).color})` 
-                }}
-              ></div>
-              
-              {/* Animated border with tier color based on user's best score */}
-              <div 
-                className="absolute inset-0 rounded-xl animate-pulse-border"
-                style={{ 
-                  background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}80, ${getNFTTier(getCurrentPlayerBest()).color})` 
-                }}
-              ></div>
-              
-              {/* Main button with enhanced effects */}
-              <button
-                onClick={mintNFT}
-                className="relative px-8 py-4 rounded-xl font-['Press_Start_2P'] text-lg text-white shadow-lg 
-                          transition-all duration-300 border-2 transform hover:scale-105 
-                          z-10 min-w-[240px] overflow-hidden"
-                style={{
-                  background: `linear-gradient(to bottom, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}CC)`,
-                  borderColor: getNFTTier(getCurrentPlayerBest()).color,
-                  boxShadow: `0 0 20px ${getNFTTier(getCurrentPlayerBest()).color}50`
-                }}
-              >
-                {/* Multiple animated shine effects */}
-                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
-                <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 animate-shine-delayed"></span>
+            <div className="flex flex-col items-center gap-4">
+              {/* Tier NFT Mint Button */}
+              <div className="relative animate-float">
+                {/* Enhanced glow effect background */}
+                <div className="absolute inset-0 bg-gradient-radial from-yellow-400/30 to-yellow-400/0 blur-2xl"></div>
                 
-                {/* Pixelated texture overlay */}
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-20"></div>
+                {/* Pulsing ring with tier color based on user's best score */}
+                <div 
+                  className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring"
+                  style={{ 
+                    background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}40, ${getNFTTier(getCurrentPlayerBest()).color})` 
+                  }}
+                ></div>
                 
-                <span className="relative">MINT {getNFTTier(getCurrentPlayerBest()).tier} NFT 🏆</span>
-              </button>
+                {/* Animated border with tier color based on user's best score */}
+                <div 
+                  className="absolute inset-0 rounded-xl animate-pulse-border"
+                  style={{ 
+                    background: `linear-gradient(to right, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}80, ${getNFTTier(getCurrentPlayerBest()).color})` 
+                  }}
+                ></div>
+                
+                {/* Main button with enhanced effects */}
+                <button
+                  onClick={mintNFT}
+                  className="relative px-8 py-4 rounded-xl font-['Press_Start_2P'] text-lg text-white shadow-lg 
+                            transition-all duration-300 border-2 transform hover:scale-105 
+                            z-10 min-w-[240px] overflow-hidden"
+                  style={{
+                    background: `linear-gradient(to bottom, ${getNFTTier(getCurrentPlayerBest()).color}, ${getNFTTier(getCurrentPlayerBest()).color}CC)`,
+                    borderColor: getNFTTier(getCurrentPlayerBest()).color,
+                    boxShadow: `0 0 20px ${getNFTTier(getCurrentPlayerBest()).color}50`
+                  }}
+                >
+                  {/* Multiple animated shine effects */}
+                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
+                  <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 animate-shine-delayed"></span>
+                  
+                  {/* Pixelated texture overlay */}
+                  <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz48L3N2Zz4=')] opacity-20"></div>
+                  
+                  <span className="relative">MINT {getNFTTier(getCurrentPlayerBest()).tier} NFT 🏆</span>
+                </button>
+              </div>
+
+              {/* Achievement NFT Mint Button - Only show if score >= 10000 */}
+              {getCurrentPlayerBest() >= 10000 && (
+                <div className="relative animate-float" style={{ animationDelay: '0.5s' }}>
+                  {/* Achievement glow effect */}
+                  <div className="absolute inset-0 bg-gradient-radial from-orange-400/30 to-orange-400/0 blur-2xl"></div>
+                  
+                  {/* Achievement pulsing ring */}
+                  <div className="absolute -inset-4 rounded-2xl opacity-30 animate-pulse-ring bg-gradient-to-r from-orange-500 to-yellow-500"></div>
+                  
+                  <button
+                    onClick={mintAchievement}
+                    className="relative px-6 py-3 rounded-xl font-['Press_Start_2P'] text-sm text-white shadow-lg 
+                              transition-all duration-300 border-2 transform hover:scale-105 
+                              z-10 min-w-[200px] overflow-hidden bg-gradient-to-bottom from-orange-500 to-orange-700
+                              border-orange-400"
+                    style={{
+                      boxShadow: `0 0 20px rgba(251, 146, 60, 0.5)`
+                    }}
+                  >
+                    {/* Achievement shine effects */}
+                    <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shine"></span>
+                    
+                    <span className="relative">MINT ACHIEVEMENT 🏆</span>
+                  </button>
+                  
+                  {/* Achievement description */}
+                  <p className="font-['Press_Start_2P'] text-xs mt-2 text-center text-orange-300">
+                    Elite Player Achievement
+                  </p>
+                </div>
+              )}
             </div>
             
             {/* Enhanced floating text with glow - shows user's eligible tier */}
@@ -1171,7 +1565,7 @@ const FlappyBTCChart: React.FC = () => {
             
             {/* Security notice */}
             <p className="font-['Press_Start_2P'] text-xs text-purple-300 mt-2 text-center opacity-80">
-              Based on your highest score
+              Secured by game signature ✅
             </p>
             
             {/* Wallet address display */}

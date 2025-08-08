@@ -204,6 +204,68 @@ app.post('/api/get-achievement-signature', async (req, res) => {
   }
 });
 
+// In-memory leaderboard storage (use database in production)
+let leaderboard = [];
+
+// POST /api/leaderboard - Submit score to leaderboard
+app.post('/api/leaderboard', (req, res) => {
+  try {
+    const { address, score, timestamp, tier } = req.body;
+    
+    // Validate input
+    if (!address || !score || !timestamp || !tier) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Validate Ethereum address
+    if (!ethers.isAddress(address)) {
+      return res.status(400).json({ error: 'Invalid Ethereum address' });
+    }
+    
+    // Validate score
+    if (typeof score !== 'number' || score < 0) {
+      return res.status(400).json({ error: 'Invalid score' });
+    }
+    
+    // Check if user already has a better score
+    const existingEntryIndex = leaderboard.findIndex(entry => entry.address.toLowerCase() === address.toLowerCase());
+    
+    if (existingEntryIndex !== -1) {
+      // Update if new score is better
+      if (score > leaderboard[existingEntryIndex].score) {
+        leaderboard[existingEntryIndex] = { address, score, timestamp, tier };
+      }
+    } else {
+      // Add new entry
+      leaderboard.push({ address, score, timestamp, tier });
+    }
+    
+    // Sort by score (highest first) and keep only top 100
+    leaderboard.sort((a, b) => b.score - a.score);
+    leaderboard = leaderboard.slice(0, 100);
+    
+    res.json({ success: true, message: 'Score submitted successfully' });
+    
+  } catch (error) {
+    console.error('Leaderboard submission error:', error);
+    res.status(500).json({ error: 'Failed to submit score' });
+  }
+});
+
+// GET /api/leaderboard - Get top scores
+app.get('/api/leaderboard', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const topScores = leaderboard.slice(0, Math.min(limit, 100));
+    
+    res.json(topScores);
+    
+  } catch (error) {
+    console.error('Leaderboard fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: Date.now() });
