@@ -10,7 +10,18 @@ export default function App() {
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
         <main className="container mx-auto px-4 py-8">
           <div className="flex flex-col items-center gap-4">
-            <ConnectKitButton />
+            <ConnectKitButton.Custom>
+              {({ isConnected, show, truncatedAddress, ensName }) => {
+                return (
+                  <button 
+                    onClick={show}
+                    className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 border-2 border-purple-500/30 hover:border-purple-400/50 shadow-lg hover:shadow-purple-500/25"
+                  >
+                    {isConnected ? (ensName ?? truncatedAddress) : "Connad Wallet"}
+                  </button>
+                );
+              }}
+            </ConnectKitButton.Custom>
             <FlappyBird />
           </div>
         </main>
@@ -39,7 +50,18 @@ export default function App() {
                 Monapy
               </span>
             </div>
-            <ConnectKitButton />
+            <ConnectKitButton.Custom>
+              {({ isConnected, show, truncatedAddress, ensName }) => {
+                return (
+                  <button 
+                    onClick={show}
+                    className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 border-2 border-purple-500/30 hover:border-purple-400/50 shadow-lg hover:shadow-purple-500/25"
+                  >
+                    {isConnected ? (ensName ?? truncatedAddress) : "Connad Wallet"}
+                  </button>
+                );
+              }}
+            </ConnectKitButton.Custom>
           </div>
         </header>
 
@@ -89,14 +111,13 @@ export default function App() {
             {/* Call to action */}
             <div className="bg-gradient-to-r from-purple-600/20 to-cyan-600/20 backdrop-blur-sm rounded-2xl p-8 border border-purple-500/30">
               <h2 className="text-2xl font-bold mb-4 text-yellow-300">
-                🔗 Connect Your Wallet to Start Playing!
+                🔗 Connect Your Wallet to Play!
               </h2>
               <p className="text-purple-200 mb-6">
                 Join the adventure and compete for the highest score on the leaderboard
               </p>
               
               <div className="flex flex-col items-center gap-4">
-                <ConnectKitButton />
                 <div className="flex items-center gap-4 text-sm text-purple-300">
                   <span className="flex items-center gap-1">
                     <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
