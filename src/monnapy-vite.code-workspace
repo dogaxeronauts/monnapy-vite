@@ -1,13 +1,7 @@
 {
-	"folders": [
-		{
-			"path": ".."
-		},
-		{
-			"path": "../../animation"
-		}
-	],
-	"settings": {
-		"liveServer.settings.multiRootWorkspaceName": "animation"
-	}
+    "folders": [
+        {
+            "path": ".."
+        }
+    ]
 }
