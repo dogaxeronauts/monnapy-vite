@@ -3,6 +3,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { GAME_CONFIG } from "../config";
+import { useWebSocket } from "../hooks/useWebSocket";
+import { 
+  LiveScoreNotification, 
+  LivePlayerJoinNotification, 
+  useLiveNotifications 
+} from "./LiveNotifications";
 
 const GAME_WIDTH = 1200; // Wider for cinematic experience
 const GAME_HEIGHT = 580; // Reduced height for better viewport fit
@@ -37,13 +43,6 @@ type PowerUp = {
   y: number;
   type: 'shield' | 'slowTime' | 'doublePoints' | 'magnet' | 'invincibility' | 'jumpBoost' | 'scoreMultiplier';
   collected?: boolean;
-};
-
-type LeaderboardEntry = {
-  address: string;
-  score: number;
-  timestamp: number;
-  tier: string;
 };
 
 type GameStats = {
@@ -106,9 +105,49 @@ const FlappyBTCChart: React.FC = () => {
   const [highScore, setHighScore] = useState(0);
   const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
+
+  // WebSocket connection for live leaderboard
+  const { 
+    leaderboard, 
+    onlineCount, 
+    isConnected: wsConnected, 
+    submitScore: submitLiveScore,
+    reconnect,
+    onScoreUpdate,
+    onPlayerJoin
+  } = useWebSocket();
+  
+  // Live notifications
+  const { 
+    scoreUpdates, 
+    playerJoins, 
+    addScoreUpdate, 
+    addPlayerJoin 
+  } = useLiveNotifications();
+
+  // Set up live event handlers
+  useEffect(() => {
+    if (onScoreUpdate) {
+      onScoreUpdate((update) => {
+        // Don't show notification for own score
+        if (update.address.toLowerCase() !== address?.toLowerCase()) {
+          addScoreUpdate(update);
+        }
+      });
+    }
+    
+    if (onPlayerJoin) {
+      onPlayerJoin((data) => {
+        // Don't show notification for own join
+        if (data.address.toLowerCase() !== address?.toLowerCase()) {
+          addPlayerJoin(data.address, data.count);
+        }
+      });
+    }
+  }, [onScoreUpdate, onPlayerJoin, address, addScoreUpdate, addPlayerJoin]);
 
   // Save player score and check for new high score
   const savePlayerScore = (finalScore: number) => {
@@ -242,9 +281,15 @@ const FlappyBTCChart: React.FC = () => {
     });
   };
 
-  // Leaderboard API functions
+  // Leaderboard API functions - now using WebSocket
   const submitScoreToLeaderboard = async (playerAddress: string, finalScore: number) => {
     try {
+      const tier = getNFTTier(finalScore).tier;
+      
+      // Submit via WebSocket for real-time updates
+      submitLiveScore(playerAddress, finalScore, tier);
+      
+      // Also keep REST API for backup/compatibility
       const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
         method: 'POST',
         headers: {
@@ -254,33 +299,28 @@ const FlappyBTCChart: React.FC = () => {
           address: playerAddress,
           score: finalScore,
           timestamp: Date.now(),
-          tier: getNFTTier(finalScore).tier
+          tier
         }),
       });
       
-      if (response.ok) {
-        fetchLeaderboard();
+      if (!response.ok) {
+        console.log('REST API leaderboard submit failed');
       }
     } catch (error) {
       console.log('Leaderboard submit failed:', error);
     }
   };
 
-  const fetchLeaderboard = async () => {
-    try {
-      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`);
-      if (response.ok) {
-        const data = await response.json();
-        setLeaderboard(data.slice(0, 10)); // Top 10
-      }
-    } catch (error) {
-      console.log('Leaderboard fetch failed:', error);
-    }
-  };
-
-  // Load leaderboard on component mount
+  // Player join WebSocket on wallet connection
   useEffect(() => {
-    fetchLeaderboard();
+    if (isConnected && address && wsConnected) {
+      // Use the WebSocket hook's internal socket connection
+      submitLiveScore(address, 0, 'NONE'); // Send initial connection signal
+    }
+  }, [isConnected, address, wsConnected, submitLiveScore]);
+
+  // Load leaderboard on component mount - WebSocket handles this now
+  useEffect(() => {
     
     // Load game stats from localStorage
     const savedStats = localStorage.getItem('gameStats');
@@ -1712,9 +1752,15 @@ const FlappyBTCChart: React.FC = () => {
                         
                         {/* Player Info */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-white text-xs font-['Press_Start_2P']">
-                            {entry.address.slice(0, 8)}...{entry.address.slice(-6)}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-white text-xs font-['Press_Start_2P']">
+                              {entry.address.slice(0, 8)}...{entry.address.slice(-6)}
+                            </span>
+                            {/* Online indicator */}
+                            <div className={`w-2 h-2 rounded-full ${
+                              entry.isOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
+                            }`} title={entry.isOnline ? 'Online' : 'Offline'} />
+                          </div>
                           <div className="flex items-center gap-2">
                             <span 
                               className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded-full border"
@@ -1770,21 +1816,25 @@ const FlappyBTCChart: React.FC = () => {
               </div>
               
               <div className="mt-6 pt-6 border-t-2 border-yellow-500/30 relative z-10 space-y-4">
-                {/* Enhanced Refresh Button */}
+                {/* Enhanced Reconnect Button */}
                 <button
-                  onClick={fetchLeaderboard}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-yellow-900/80 to-yellow-800/80 rounded-lg border-2 border-yellow-500/30 text-yellow-200 text-xs font-['Press_Start_2P'] hover:bg-gradient-to-r hover:from-yellow-800/80 hover:to-yellow-700/80 hover:border-yellow-400/50 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={reconnect}
+                  className={`w-full px-4 py-3 rounded-lg border-2 text-xs font-['Press_Start_2P'] transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
+                    wsConnected 
+                      ? 'bg-gradient-to-r from-green-900/80 to-green-800/80 border-green-500/30 text-green-200 hover:bg-gradient-to-r hover:from-green-800/80 hover:to-green-700/80 hover:border-green-400/50'
+                      : 'bg-gradient-to-r from-red-900/80 to-red-800/80 border-red-500/30 text-red-200 hover:bg-gradient-to-r hover:from-red-800/80 hover:to-red-700/80 hover:border-red-400/50'
+                  }`}
                 >
-                  🔄 REFRESH LEADERBOARD
+                  {wsConnected ? '� LIVE CONNECTED' : '🔴 RECONNECT'}
                 </button>
                 
                 {/* Enhanced Leaderboard Stats */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
                     <p className="text-sm text-yellow-300 font-['Press_Start_2P'] mb-1">
-                      {leaderboard.length}
+                      {onlineCount}
                     </p>
-                    <p className="text-xs text-yellow-200">TOTAL PLAYERS</p>
+                    <p className="text-xs text-yellow-200">🟢 ONLINE</p>
                   </div>
                   
                   {address && (() => {
@@ -2136,6 +2186,19 @@ const FlappyBTCChart: React.FC = () => {
           animation: scanline 2s linear infinite;
         }
       `}</style>
+
+      {/* Live Notifications */}
+      {scoreUpdates.map((update: any, index: number) => (
+        <LiveScoreNotification key={`score-${index}`} update={update} />
+      ))}
+      
+      {playerJoins.map((join, index) => (
+        <LivePlayerJoinNotification 
+          key={`join-${index}`} 
+          address={join.address} 
+          count={join.count} 
+        />
+      ))}
     </div>
   );
 };

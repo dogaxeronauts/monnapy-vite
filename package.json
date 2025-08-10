@@ -7,10 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "server": "node server.cjs",
+    "dev:full": "concurrently \"npm run server\" \"npm run dev\""
   },
   "dependencies": {
     "@tanstack/react-query": "^5.84.1",
+    "@types/socket.io-client": "^1.4.36",
+    "concurrently": "^9.2.0",
     "connectkit": "^1.9.1",
     "cors": "^2.8.5",
     "ethers": "^6.15.0",
@@ -18,6 +22,8 @@
     "react": "^18",
     "react-dom": "^18",
     "react-router-dom": "^6.30.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "viem": "^2.33.2",
     "wagmi": "^2.16.1"
   },
