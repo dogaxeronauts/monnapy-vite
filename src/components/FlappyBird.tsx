@@ -1,24 +1,24 @@
-"use client";
 import React, { useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { GAME_CONFIG } from "../config";
-import { useWebSocket } from "../hooks/useWebSocket";
+import MultiUserLeaderboard from "./MultiUserLeaderboard";
+import PlayerHistory from "./PlayerHistory";
 import { 
   LiveScoreNotification, 
   LivePlayerJoinNotification, 
   useLiveNotifications 
 } from "./LiveNotifications";
 
-const GAME_WIDTH = 1200; // Wider for cinematic experience
-const GAME_HEIGHT = 580; // Reduced height for better viewport fit
-const BIRD_X = 160; // Adjusted proportionally
-const BIRD_SIZE = 60; // Increased bird size for better visibility
-const GROUND_HEIGHT = 90; // Increased proportionally
+const GAME_WIDTH = 1000; // Much wider for better gaming experience
+const GAME_HEIGHT = 600; // Taller for better visibility
+const BIRD_X = 200; // Adjusted proportionally for larger screen
+const BIRD_SIZE = 70; // Larger bird for better visibility
+const GROUND_HEIGHT = 120; // Proportionally increased
 const GRAVITY = 0.25;
 const JUMP_FORCE = -8;
-const CANDLE_INTERVAL = 1800;
-const MIN_GAP = 180; // Increased gap for larger screen
+const CANDLE_INTERVAL = 2000; // Slightly slower for bigger screen
+const MIN_GAP = 220; // Larger gap for bigger screen and bird
 const PIXEL_SIZE = 4;
 const POWER_UP_INTERVAL = 10000; // Power-up spawn interval in ms
 const POWER_UP_DURATION = 5000; // Power-up effect duration in ms
@@ -102,83 +102,30 @@ const FlappyBTCChart: React.FC = () => {
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
   const [combo, setCombo] = useState(0);
-  const [highScore, setHighScore] = useState(0);
   const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
+  const [showPlayerHistory, setShowPlayerHistory] = useState(false);
+  const [selectedPlayerAddress, setSelectedPlayerAddress] = useState<string>('');
   
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
 
-  // WebSocket connection for live leaderboard
-  const { 
-    leaderboard, 
-    onlineCount, 
-    isConnected: wsConnected, 
-    submitScore: submitLiveScore,
-    reconnect,
-    onScoreUpdate,
-    onPlayerJoin
-  } = useWebSocket();
-  
-  // Live notifications
+  // Live notifications for enhanced UX  
   const { 
     scoreUpdates, 
-    playerJoins, 
-    addScoreUpdate, 
-    addPlayerJoin 
+    playerJoins
   } = useLiveNotifications();
 
-  // Set up live event handlers
-  useEffect(() => {
-    if (onScoreUpdate) {
-      onScoreUpdate((update) => {
-        // Don't show notification for own score
-        if (update.address.toLowerCase() !== address?.toLowerCase()) {
-          addScoreUpdate(update);
-        }
-      });
-    }
-    
-    if (onPlayerJoin) {
-      onPlayerJoin((data) => {
-        // Don't show notification for own join
-        if (data.address.toLowerCase() !== address?.toLowerCase()) {
-          addPlayerJoin(data.address, data.count);
-        }
-      });
-    }
-  }, [onScoreUpdate, onPlayerJoin, address, addScoreUpdate, addPlayerJoin]);
-
-  // Save player score and check for new high score
-  const savePlayerScore = (finalScore: number) => {
-    if (!address) return;
-    
-    // Update player scores in localStorage
-    const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-    const currentPlayerBest = savedScores[address] || 0;
-    
-    if (finalScore > currentPlayerBest) {
-      savedScores[address] = finalScore;
-      localStorage.setItem('playerScores', JSON.stringify(savedScores));
-      setPlayerScores(savedScores);
-      
-      // Update high score if this is the highest overall
-      const allScores = Object.values(savedScores) as number[];
-      const newHighScore = Math.max(...allScores);
-      if (newHighScore > highScore) {
-        setHighScore(newHighScore);
-        localStorage.setItem('highScore', newHighScore.toString());
-      }
-    }
-  };
+  // Basic state for current score
+  const [currentScore, setCurrentScore] = useState(0);
+  
+  // Reference to MultiUserLeaderboard's submitScore function
+  const multiSyncSubmitScoreRef = useRef<((score: number) => void) | null>(null);
 
   // Load saved scores when component mounts or address changes
   useEffect(() => {
     const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-    const savedHighScore = parseInt(localStorage.getItem('highScore') || '0');
-    
     setPlayerScores(savedScores);
-    setHighScore(savedHighScore);
   }, [address, isConnected]);
 
   // Load hedgehog image
@@ -199,23 +146,26 @@ const FlappyBTCChart: React.FC = () => {
     loadHedgehogImage();
   }, []);
 
-  // Get current player's best score
+  // Get current player's best score (from local storage)
   const getCurrentPlayerBest = () => {
-    if (!address) return 0;
-    return playerScores[address] || 0;
+    return (address && playerScores[address]) || 0;
   };
 
   // Get NFT tier based on score (matches contract enum exactly)
   const getNFTTier = (score: number) => {
-    if (score >= 20000) return { tier: 'MYTHIC', color: '#FF00FF', requirement: 20000, enumValue: 8 };      // Tier.Mythic
-    if (score >= 17500) return { tier: 'LEGENDARY', color: '#FFD700', requirement: 17500, enumValue: 7 };   // Tier.Legendary
-    if (score >= 15000) return { tier: 'DIAMOND', color: '#B9F2FF', requirement: 15000, enumValue: 6 };     // Tier.Diamond
-    if (score >= 12500) return { tier: 'PLATINUM', color: '#E5E4E2', requirement: 12500, enumValue: 5 };    // Tier.Platinum
-    if (score >= 10000) return { tier: 'GOLD', color: '#FFD700', requirement: 10000, enumValue: 4 };        // Tier.Gold
-    if (score >= 7500) return { tier: 'SILVER', color: '#C0C0C0', requirement: 7500, enumValue: 3 };        // Tier.Silver
-    if (score >= 4500) return { tier: 'BRONZE', color: '#CD7F32', requirement: 4500, enumValue: 2 };        // Tier.Bronze
-    if (score >= 750) return { tier: 'REGULAR', color: '#10B981', requirement: 750, enumValue: 1 };         // Tier.Regular
-    return { tier: 'NONE', color: '#6B7280', requirement: 750, enumValue: 0 };                              // Tier.None
+    const tiers = [
+      { tier: 'MYTHIC',    color: '#FF00FF', requirement: 20000, enumValue: 8 },
+      { tier: 'LEGENDARY', color: '#FFD700', requirement: 17500, enumValue: 7 },
+      { tier: 'DIAMOND',   color: '#B9F2FF', requirement: 15000, enumValue: 6 },
+      { tier: 'PLATINUM',  color: '#E5E4E2', requirement: 12500, enumValue: 5 },
+      { tier: 'GOLD',      color: '#FFD700', requirement: 10000, enumValue: 4 },
+      { tier: 'SILVER',    color: '#C0C0C0', requirement: 7500,  enumValue: 3 },
+      { tier: 'BRONZE',    color: '#CD7F32', requirement: 4500,  enumValue: 2 },
+      { tier: 'REGULAR',   color: '#10B981', requirement: 750,   enumValue: 1 }
+    ];
+
+    return tiers.find(t => score >= t.requirement) 
+        || { tier: 'NONE', color: '#6B7280', requirement: 750, enumValue: 0 };
   };
 
   // Visual effects functions
@@ -228,9 +178,15 @@ const FlappyBTCChart: React.FC = () => {
     };
   };
 
-  const createParticles = (x: number, y: number, count: number, color: string, spread = 50) => {
-    for (let i = 0; i < count; i++) {
-      particlesRef.current.push({
+  const createParticles = (
+    x: number,
+    y: number,
+    count: number,
+    color: string,
+    spread = 50
+  ) => {
+    particlesRef.current.push(
+      ...Array.from({ length: count }, () => ({
         x,
         y,
         vx: (Math.random() - 0.5) * spread,
@@ -239,8 +195,8 @@ const FlappyBTCChart: React.FC = () => {
         maxLife: Math.random() * 30 + 30,
         color,
         size: Math.random() * 4 + 2
-      });
-    }
+      }))
+    );
   };
 
   const updateParticles = () => {
@@ -254,16 +210,16 @@ const FlappyBTCChart: React.FC = () => {
   };
 
   const updateScreenShake = () => {
-    const currentTime = Date.now();
-    if (screenShakeRef.current.duration > currentTime) {
-      const remaining = (screenShakeRef.current.duration - currentTime) / 1000;
-      const intensity = screenShakeRef.current.intensity * remaining;
-      screenShakeRef.current.x = (Math.random() - 0.5) * intensity;
-      screenShakeRef.current.y = (Math.random() - 0.5) * intensity;
-    } else {
-      screenShakeRef.current.x = 0;
-      screenShakeRef.current.y = 0;
-    }
+    const now = Date.now();
+    const s = screenShakeRef.current;
+
+    // kalan süreyi 0–∞ aralığına sıkıştır, lineer sönüm uygula
+    const remaining = Math.max(0, (s.duration - now) / 1000);
+    const intensity = s.intensity * remaining;
+
+    // remaining 0 olduğunda intensity 0 olur → x,y otomatik 0
+    s.x = (Math.random() - 0.5) * intensity;
+    s.y = (Math.random() - 0.5) * intensity;
   };
 
   const spawnPowerUp = () => {
@@ -281,43 +237,40 @@ const FlappyBTCChart: React.FC = () => {
     });
   };
 
-  // Leaderboard API functions - now using WebSocket
+  // Leaderboard API functions - Local storage only
   const submitScoreToLeaderboard = async (playerAddress: string, finalScore: number) => {
+    const tier = getNFTTier(finalScore).tier;
+    const gameTime = Date.now() - gameStartTimeRef.current; // Calculate game duration
+    const payload = { address: playerAddress, score: finalScore, timestamp: Date.now(), tier };
+
+    console.log('📤 Submitting score locally:', { 
+      address: playerAddress, 
+      score: finalScore, 
+      tier, 
+      gameTime
+    });
+
+    // Update current score for React Together
+    setCurrentScore(finalScore);
+
+    // Submit to MultiUserLeaderboard (React Together synchronized)
+    if (multiSyncSubmitScoreRef.current) {
+      console.log('🌐 Submitting score to MultiUserLeaderboard:', finalScore);
+      multiSyncSubmitScoreRef.current(finalScore);
+    }
+
+    // REST API submission (backup for compatibility)
     try {
-      const tier = getNFTTier(finalScore).tier;
-      
-      // Submit via WebSocket for real-time updates
-      submitLiveScore(playerAddress, finalScore, tier);
-      
-      // Also keep REST API for backup/compatibility
-      const response = await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
+      await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          address: playerAddress,
-          score: finalScore,
-          timestamp: Date.now(),
-          tier
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-      
-      if (!response.ok) {
-        console.log('REST API leaderboard submit failed');
-      }
+      console.log('✅ Score submitted to REST API as backup');
     } catch (error) {
-      console.log('Leaderboard submit failed:', error);
+      console.error('❌ REST API submission failed:', error);
     }
   };
-
-  // Player join WebSocket on wallet connection
-  useEffect(() => {
-    if (isConnected && address && wsConnected) {
-      // Use the WebSocket hook's internal socket connection
-      submitLiveScore(address, 0, 'NONE'); // Send initial connection signal
-    }
-  }, [isConnected, address, wsConnected, submitLiveScore]);
 
   // Load leaderboard on component mount - WebSocket handles this now
   useEffect(() => {
@@ -330,21 +283,21 @@ const FlappyBTCChart: React.FC = () => {
   }, []);
 
   const resetGame = () => {
-    // Save game stats before reset
-    if (gameStarted) {
-      gameStatsRef.current.totalGamesPlayed += 1;
-      gameStatsRef.current.totalTimePlayed += Date.now() - gameStartTimeRef.current;
-      if (combo > gameStatsRef.current.bestCombo) {
-        gameStatsRef.current.bestCombo = combo;
-      }
-      localStorage.setItem('gameStats', JSON.stringify(gameStatsRef.current));
-    }
-    
+    gameStarted && (() => {
+      const stats = gameStatsRef.current;
+      stats.totalGamesPlayed++;
+      stats.totalTimePlayed += Date.now() - gameStartTimeRef.current;
+      stats.bestCombo = Math.max(stats.bestCombo, combo);
+      localStorage.setItem('gameStats', JSON.stringify(stats));
+    })();
+
     setScore(0);
     setGameOver(false);
     setGameStarted(false);
     setCombo(0);
     setTierUpgradeTime(0);
+    setCurrentScore(0); // Reset current score for MultiUserLeaderboard
+
     birdYRef.current = GAME_HEIGHT / 2;
     velocityRef.current = 0;
     candlesRef.current = [];
@@ -354,12 +307,7 @@ const FlappyBTCChart: React.FC = () => {
     lastPowerUpRef.current = Date.now();
     activeEffectsRef.current = {};
 
-    // Canvas'ı temizle
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (ctx) {
-      ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    }
+    canvasRef.current?.getContext("2d")?.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
   };
 
   const flap = () => {
@@ -389,25 +337,32 @@ const FlappyBTCChart: React.FC = () => {
   };
 
   const spawnCandle = () => {
-    const isGreen = Math.random() > 0.5;
-    const gapStart = Math.random() * (GAME_HEIGHT - GROUND_HEIGHT - MIN_GAP - 80) + 40;
+    const cr = candlesRef.current;
+    const rr = rugPullsRef.current;
+
+    // Tekrarlı global erişimleri ve hesapları azalt
+    const rType  = Math.random();
+    const rGap   = Math.random();
+    const rWidth = Math.random();
+    const rRug   = Math.random();
+
+    const base = GAME_HEIGHT - GROUND_HEIGHT - MIN_GAP - 80;
+    const gapStart = rGap * base + 40;
     const gapEnd = gapStart + MIN_GAP;
 
-    candlesRef.current.push({
+    cr.push({
       x: GAME_WIDTH,
-      type: isGreen ? "green" : "red",
+      type: rType > 0.5 ? "green" : "red",
       low: gapStart,
       high: gapEnd,
-      width: 40 + Math.random() * 30
+      width: 40 + rWidth * 30
     });
 
-    if (Math.random() < 0.3) {
-      rugPullsRef.current.push({
-        x: GAME_WIDTH + 20,
-        y: -40,
-        falling: true
-      });
-    }
+    rRug < 0.3 && rr.push({
+      x: GAME_WIDTH + 20,
+      y: -40,
+      falling: true
+    });
   };
 
   useEffect(() => {
@@ -714,55 +669,55 @@ const FlappyBTCChart: React.FC = () => {
 
       // Unified Score Panel - Minimal design with better spacing
       const playerBest = getCurrentPlayerBest();
-      const panelWidth = 400;
-      const panelHeight = playerBest > 0 && playerBest >= 750 ? 95 : (playerBest > 0 ? 75 : 50);
+      const panelWidth = 500; // Wider for bigger screen
+      const panelHeight = playerBest > 0 && playerBest >= 750 ? 110 : (playerBest > 0 ? 85 : 60); // Taller panels
       
       drawRetroPanel(10, 10, panelWidth, panelHeight);
       
       // Main score with pulsing effect
       const scoreFlash = Math.sin(Date.now() * 0.02) * 0.3 + 0.7;
       ctx.fillStyle = `rgb(${254 * scoreFlash}, ${240 * scoreFlash}, ${138})`;
-      ctx.font = "18px 'Press Start 2P'";
+      ctx.font = "22px 'Press Start 2P'"; // Larger font
       ctx.textAlign = "left";
-      ctx.fillText(`SCORE: ${score}`, 20, 32);
+      ctx.fillText(`SCORE: ${score}`, 20, 36);
       
       // Current tier indicator (only show if eligible)
       if (score >= 750) {
         const currentTier = getNFTTier(score);
         ctx.fillStyle = currentTier.color;
-        ctx.font = "9px 'Press Start 2P'";
-        ctx.fillText(`${currentTier.tier}`, 20, 46);
+        ctx.font = "11px 'Press Start 2P'"; // Slightly larger
+        ctx.fillText(`${currentTier.tier}`, 20, 52); // Adjusted position
       }
 
       // Vertical divider line
       ctx.fillStyle = "#4B5563";
-      ctx.fillRect(210, 15, 2, panelHeight - 10);
+      ctx.fillRect(260, 15, 2, panelHeight - 10); // Moved divider for wider panel
 
       // Best score section (right side)
       if (playerBest > 0) {
         // Best score
         ctx.fillStyle = "#a78bfa";
-        ctx.font = "14px 'Press Start 2P'";
+        ctx.font = "16px 'Press Start 2P'"; // Larger font
         ctx.textAlign = "left";
-        ctx.fillText(`BEST: ${playerBest}`, 220, 32);
+        ctx.fillText(`BEST: ${playerBest}`, 270, 36); // Adjusted position
         
         // Progress indicator - only show essential info
         const progress = Math.min((score / playerBest) * 100, 100);
-        ctx.font = "9px 'Press Start 2P'";
+        ctx.font = "10px 'Press Start 2P'";
         
         if (score > playerBest) {
           ctx.fillStyle = "#10b981";
-          ctx.fillText(`NEW RECORD! +${score - playerBest}`, 220, 46);
+          ctx.fillText(`NEW RECORD! +${score - playerBest}`, 270, 52);
         } else {
           ctx.fillStyle = "#6b7280";
           const progressText = `${progress.toFixed(0)}% | Need: ${playerBest - score}`;
           // Uzun text için truncate
-          const maxWidth = 170;
+          const maxWidth = 220; // Wider for bigger panel
           const textWidth = ctx.measureText(progressText).width;
           if (textWidth > maxWidth) {
-            ctx.fillText(`${progress.toFixed(0)}%`, 220, 46);
+            ctx.fillText(`${progress.toFixed(0)}%`, 270, 52);
           } else {
-            ctx.fillText(progressText, 220, 46);
+            ctx.fillText(progressText, 270, 52);
           }
         }
         
@@ -770,16 +725,16 @@ const FlappyBTCChart: React.FC = () => {
         const bestTier = getNFTTier(playerBest);
         if (playerBest >= 750) {
           ctx.fillStyle = bestTier.color;
-          ctx.font = "9px 'Press Start 2P'";
-          ctx.fillText(`ELIGIBLE: ${bestTier.tier}`, 220, 60);
+          ctx.font = "10px 'Press Start 2P'";
+          ctx.fillText(`ELIGIBLE: ${bestTier.tier}`, 270, 68);
         }
         
         // Simple progress bar at bottom (only if there's space)
-        if (panelHeight > 70) {
-          const barWidth = 360;
-          const barHeight = 6;
+        if (panelHeight > 80) {
+          const barWidth = 460; // Wider bar for bigger panel
+          const barHeight = 8; // Slightly taller
           const barX = 20;
-          const barY = panelHeight - 15;
+          const barY = panelHeight - 18;
           
           // Background
           ctx.fillStyle = "#374151";
@@ -794,11 +749,11 @@ const FlappyBTCChart: React.FC = () => {
 
       // Enhanced Flight HUD - Top Right Corner
       if (gameStarted && !gameOver) {
-        const hudX = GAME_WIDTH - 300;
+        const hudX = GAME_WIDTH - 360; // Moved further from edge
         const hudY = 10;
         
         // HUD Background
-        drawRetroPanel(hudX, hudY, 290, 120);
+        drawRetroPanel(hudX, hudY, 350, 140); // Made wider and taller
         
         // Flight metrics
         const altitude = Math.max(0, Math.round((GAME_HEIGHT - GROUND_HEIGHT - birdYRef.current) / (GAME_HEIGHT - GROUND_HEIGHT) * 100));
@@ -857,27 +812,27 @@ const FlappyBTCChart: React.FC = () => {
 
       // Enhanced Combo display (below HUD)
       if (combo > 0) {
-        const comboX = GAME_WIDTH - 300;
-        const comboY = 140;
+        const comboX = GAME_WIDTH - 360; // Aligned with HUD
+        const comboY = 160; // Adjusted for larger HUD
         
-        drawRetroPanel(comboX, comboY, 290, 60);
+        drawRetroPanel(comboX, comboY, 350, 70); // Wider combo panel
         const comboFlash = Math.sin(Date.now() * 0.02) * 0.5 + 0.5;
         ctx.fillStyle = `rgb(${255 * comboFlash}, ${180 * comboFlash}, 0)`;
-        ctx.font = "18px 'Press Start 2P'";
+        ctx.font = "20px 'Press Start 2P'"; // Larger combo text
         ctx.textAlign = "center";
-        ctx.fillText(`COMBO x${combo}`, comboX + 145, comboY + 25);
+        ctx.fillText(`COMBO x${combo}`, comboX + 175, comboY + 28); // Centered in wider panel
         
         // Show combo bonus points
-        ctx.font = "10px 'Press Start 2P'";
+        ctx.font = "11px 'Press Start 2P'";
         ctx.fillStyle = "#fef08a";
-        ctx.fillText(`+${combo * 50} BONUS PER CANDLE!`, comboX + 145, comboY + 45);
+        ctx.fillText(`+${combo * 50} BONUS PER CANDLE!`, comboX + 175, comboY + 50);
         
         // Combo progress bar to next milestone
         const nextMilestone = Math.ceil(combo / 5) * 5;
         const progress = combo / nextMilestone;
-        const progressBarWidth = 250;
+        const progressBarWidth = 310; // Wider progress bar
         const progressBarX = comboX + 20;
-        const progressBarY = comboY + 50;
+        const progressBarY = comboY + 58;
         
         ctx.fillStyle = "#374151";
         ctx.fillRect(progressBarX, progressBarY, progressBarWidth, 4);
@@ -1148,8 +1103,14 @@ const FlappyBTCChart: React.FC = () => {
               createParticles(BIRD_X, birdYRef.current, 25, "#ef4444", 80);
               
               // Save player score when game ends
-              savePlayerScore(score);
+              // Save to localStorage for backup
+              const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
               if (address) {
+                scores[address] = Math.max(scores[address] || 0, score);
+                localStorage.setItem('playerScores', JSON.stringify(scores));
+                setPlayerScores(scores);
+                
+                // Submit to Multisynq and other services
                 submitScoreToLeaderboard(address, score);
               }
               return; // Stop game loop immediately when game over
@@ -1175,7 +1136,16 @@ const FlappyBTCChart: React.FC = () => {
             } else {
               setGameOver(true);
               // Save player score when game ends
-              savePlayerScore(score);
+              // Save to localStorage for backup
+              const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
+              if (address) {
+                scores[address] = Math.max(scores[address] || 0, score);
+                localStorage.setItem('playerScores', JSON.stringify(scores));
+                setPlayerScores(scores);
+                
+                // Submit to Multisynq and other services
+                submitScoreToLeaderboard(address, score);
+              }
             }
           }
         }
@@ -1187,7 +1157,16 @@ const FlappyBTCChart: React.FC = () => {
         ) {
           setGameOver(true);
           // Save player score when game ends
-          savePlayerScore(score);
+          // Save to localStorage for backup
+          const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
+          if (address) {
+            scores[address] = Math.max(scores[address] || 0, score);
+            localStorage.setItem('playerScores', JSON.stringify(scores));
+            setPlayerScores(scores);
+            
+            // Submit to Multisynq and other services
+            submitScoreToLeaderboard(address, score);
+          }
         }
       }
 
@@ -1240,17 +1219,17 @@ const FlappyBTCChart: React.FC = () => {
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
       // Local tier calculation - matches contract enum exactly
-      const getTierNameFromScore = (score: number) => {
-        if (score >= 20000) return "Mythic";      // Tier.Mythic (8)
-        if (score >= 17500) return "Legendary";   // Tier.Legendary (7)
-        if (score >= 15000) return "Diamond";     // Tier.Diamond (6)
-        if (score >= 12500) return "Platinum";    // Tier.Platinum (5)
-        if (score >= 10000) return "Gold";        // Tier.Gold (4)
-        if (score >= 7500) return "Silver";       // Tier.Silver (3)
-        if (score >= 4500) return "Bronze";       // Tier.Bronze (2)
-        if (score >= 750) return "Regular";       // Tier.Regular (1)
-        return "None";                             // Tier.None (0)
-      };
+      const getTierNameFromScore = (score: number) =>
+        [
+          { req: 20000, name: "Mythic" },
+          { req: 17500, name: "Legendary" },
+          { req: 15000, name: "Diamond" },
+          { req: 12500, name: "Platinum" },
+          { req: 10000, name: "Gold" },
+          { req: 7500,  name: "Silver" },
+          { req: 4500,  name: "Bronze" },
+          { req: 750,   name: "Regular" }
+        ].find(t => score >= t.req)?.name || "None";
 
       const tierName = getTierNameFromScore(currentPlayerBest);
 
@@ -1371,8 +1350,8 @@ const FlappyBTCChart: React.FC = () => {
       ))}
 
       {/* Arcade Cabinet Style Container with Grid Layout */}
-      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-3 md:p-4 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-[1600px] mx-auto">
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_450px] gap-4 items-start min-h-[60vh] xl:min-h-[60vh]">
+      <div className="relative bg-gradient-to-b from-slate-800 to-slate-900 p-3 md:p-4 rounded-[2rem] border-8 border-purple-900/50 shadow-[0_0_100px_rgba(168,85,247,0.3)] backdrop-blur-sm w-full max-w-[2000px] mx-auto">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_450px] gap-4 items-start min-h-[70vh] xl:min-h-[70vh]">
           {/* Game Section */}
           <div className="space-y-4">
             {/* 3D Spinning Monad Logo */}
@@ -1400,7 +1379,7 @@ const FlappyBTCChart: React.FC = () => {
             </div>
 
             {/* Enhanced Game Screen Container with CRT Effect */}
-            <div className="relative rounded-lg overflow-hidden border-[16px] border-slate-950 shadow-inner w-full crt-effect retro-glow">
+            <div className="relative rounded-lg overflow-hidden border-[16px] border-slate-950 shadow-inner w-full crt-effect retro-glow game-canvas-container">
               {/* Enhanced CRT Screen Effects */}
               <div className="absolute inset-0 pointer-events-none z-10">
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black opacity-30"></div>
@@ -1421,10 +1400,11 @@ const FlappyBTCChart: React.FC = () => {
                 height={GAME_HEIGHT}
                 onClick={handleCanvasClick}
                 tabIndex={0}
-                className="bg-slate-900 outline-none w-full h-auto max-w-full"
+                className="bg-slate-900 outline-none w-full h-auto max-w-full block"
                 style={{
                   imageRendering: 'pixelated',
-                  aspectRatio: `${GAME_WIDTH}/${GAME_HEIGHT}`
+                  aspectRatio: `${GAME_WIDTH}/${GAME_HEIGHT}`,
+                  minHeight: '400px'
                 }}
               />
 
@@ -1434,8 +1414,8 @@ const FlappyBTCChart: React.FC = () => {
                   top: '50%',
                   left: '50%',
                   transform: 'translate(-50%, -50%)',
-                  width: '550px',
-                  height: '400px',
+                  width: '650px',
+                  height: '480px',
                   background: 'linear-gradient(135deg, #1a103c, #2d1b69)',
                   border: '4px solid #4c1d95',
                   borderRadius: '12px',
@@ -1444,7 +1424,7 @@ const FlappyBTCChart: React.FC = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '28px',
+                  padding: '32px',
                   imageRendering: 'pixelated'
                 }}>
                   
@@ -1702,173 +1682,18 @@ const FlappyBTCChart: React.FC = () => {
 
           {/* Leaderboard Column - Right Side - Aligned with controls */}
           <div className="xl:sticky xl:top-8 xl:h-[calc(100vh-4rem)] flex flex-col justify-start">
-            <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-6 border-2 border-yellow-500/30 h-full min-h-[600px] xl:min-h-[calc(75vh-8rem)] flex flex-col">
-              <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent"></div>
-              
-              {/* Enhanced Leaderboard Header */}
-              <div className="text-center mb-6 relative z-10">
-                <h3 className="font-['Press_Start_2P'] text-sm text-yellow-300 mb-2">🏆 HALL OF FAME</h3>
-                <div className="flex justify-center items-center gap-4 text-xs">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-yellow-200">LIVE</span>
-                  </div>
-                  <div className="text-yellow-300">TOP {Math.min(leaderboard.length, 15)} PLAYERS</div>
-                </div>
-              </div>
-              
-              <div className="flex-1 space-y-3 relative z-10 overflow-y-auto pr-2 custom-scrollbar">
-                {leaderboard.length > 0 ? (
-                  leaderboard.slice(0, 15).map((entry, index) => ( // Show top 15
-                    <div 
-                      key={`${entry.address}-${entry.timestamp}`} 
-                      className={`relative flex justify-between items-center p-4 rounded-lg border-2 transition-all duration-300 transform hover:scale-[1.02] ${
-                        address && entry.address.toLowerCase() === address.toLowerCase()
-                          ? 'bg-gradient-to-r from-yellow-900/80 to-yellow-800/60 border-yellow-400/60 shadow-lg shadow-yellow-500/20'
-                          : 'bg-gradient-to-r from-slate-900/80 to-slate-800/60 border-yellow-500/30 hover:border-yellow-400/50'
-                      }`}
-                    >
-                      {/* Animated rank badge with enhanced effects */}
-                      <div className="flex items-center gap-4">
-                        <div className={`relative flex items-center justify-center w-10 h-10 rounded-full font-['Press_Start_2P'] text-xs transform transition-all duration-300 hover:scale-110 ${
-                          index === 0 ? 'bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600 text-black shadow-lg shadow-yellow-500/50' : 
-                          index === 1 ? 'bg-gradient-to-br from-gray-300 via-gray-400 to-gray-500 text-black shadow-lg shadow-gray-400/50' : 
-                          index === 2 ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-white shadow-lg shadow-amber-600/50' : 
-                          'bg-gradient-to-br from-slate-600 to-slate-800 text-gray-300'
-                        }`}>
-                          {index < 3 ? (
-                            <span>
-                              {index === 0 ? '👑' : index === 1 ? '🥈' : '🥉'}
-                            </span>
-                          ) : (
-                            <span>{index + 1}</span>
-                          )}
-                          
-                          {/* Crown glow effect for #1 */}
-                          {index === 0 && (
-                            <div className="absolute inset-0 rounded-full bg-yellow-400/30"></div>
-                          )}
-                        </div>
-                        
-                        {/* Player Info */}
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-white text-xs font-['Press_Start_2P']">
-                              {entry.address.slice(0, 8)}...{entry.address.slice(-6)}
-                            </span>
-                            {/* Online indicator */}
-                            <div className={`w-2 h-2 rounded-full ${
-                              entry.isOnline ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
-                            }`} title={entry.isOnline ? 'Online' : 'Offline'} />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span 
-                              className="text-xs font-['Press_Start_2P'] px-2 py-1 rounded-full border"
-                              style={{ 
-                                color: getNFTTier(entry.score).color, 
-                                backgroundColor: `${getNFTTier(entry.score).color}15`,
-                                borderColor: `${getNFTTier(entry.score).color}40`
-                              }}
-                            >
-                              {entry.tier}
-                            </span>
-                            {index < 3 && (
-                              <span className="text-xs text-yellow-400">✨</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Enhanced score with pulse and formatting */}
-                      <div className="text-right">
-                        <div className={`text-sm font-['Press_Start_2P'] mb-1 transition-all duration-300 ${
-                          index === 0 ? 'text-yellow-300 text-base' :
-                          index === 1 ? 'text-gray-300 text-sm' :
-                          index === 2 ? 'text-amber-600 text-sm' :
-                          'text-yellow-300'
-                        }`}>
-                          {entry.score.toLocaleString()}
-                          {index < 3 && <span className="ml-1">✨</span>}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {new Date(entry.timestamp).toLocaleDateString()}
-                        </div>
-                        
-                        {/* Score trend indicator */}
-                        {index === 0 && (
-                          <div className="text-xs text-green-400">
-                            🔥 TOP SCORE
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Highlight for current player */}
-                      {address && entry.address.toLowerCase() === address.toLowerCase() && (
-                        <div className="absolute -inset-1 bg-gradient-to-r from-yellow-400/20 via-transparent to-yellow-400/20 rounded-lg blur-sm"></div>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center text-gray-400 text-xs font-['Press_Start_2P'] mt-8">
-                    No scores yet. Be the first! 🚀
-                  </div>
-                )}
-              </div>
-              
-              <div className="mt-6 pt-6 border-t-2 border-yellow-500/30 relative z-10 space-y-4">
-                {/* Enhanced Reconnect Button */}
-                <button
-                  onClick={reconnect}
-                  className={`w-full px-4 py-3 rounded-lg border-2 text-xs font-['Press_Start_2P'] transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] ${
-                    wsConnected 
-                      ? 'bg-gradient-to-r from-green-900/80 to-green-800/80 border-green-500/30 text-green-200 hover:bg-gradient-to-r hover:from-green-800/80 hover:to-green-700/80 hover:border-green-400/50'
-                      : 'bg-gradient-to-r from-red-900/80 to-red-800/80 border-red-500/30 text-red-200 hover:bg-gradient-to-r hover:from-red-800/80 hover:to-red-700/80 hover:border-red-400/50'
-                  }`}
-                >
-                  {wsConnected ? '� LIVE CONNECTED' : '🔴 RECONNECT'}
-                </button>
-                
-                {/* Enhanced Leaderboard Stats */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
-                    <p className="text-sm text-yellow-300 font-['Press_Start_2P'] mb-1">
-                      {onlineCount}
-                    </p>
-                    <p className="text-xs text-yellow-200">🟢 ONLINE</p>
-                  </div>
-                  
-                  {address && (() => {
-                    const playerRank = leaderboard.findIndex(entry => 
-                      entry.address.toLowerCase() === address.toLowerCase()) + 1;
-                    return (
-                      <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
-                        <p className="text-sm text-yellow-300 font-['Press_Start_2P'] mb-1">
-                          {playerRank > 0 ? `#${playerRank}` : '--'}
-                        </p>
-                        <p className="text-xs text-yellow-200">YOUR RANK</p>
-                      </div>
-                    );
-                  })()}
-                  
-                  {!address && (
-                    <div className="text-center p-3 bg-slate-900/40 rounded-lg border border-yellow-500/20">
-                      <p className="text-sm text-gray-400 font-['Press_Start_2P'] mb-1">--</p>
-                      <p className="text-xs text-gray-400">CONNECT WALLET</p>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Leaderboard Info */}
-                <div className="text-center space-y-2">
-                  <p className="text-xs text-yellow-300 font-['Press_Start_2P']">
-                    🎯 MINIMUM SCORE FOR NFT: 750
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Score updates automatically when you beat your record
-                  </p>
-                </div>
-              </div>
-            </div>
+            <MultiUserLeaderboard
+              currentPlayerAddress={address}
+              currentScore={currentScore}
+              onPlayerClick={(playerAddress) => {
+                setSelectedPlayerAddress(playerAddress);
+                setShowPlayerHistory(true);
+              }}
+              getNFTTier={getNFTTier}
+              onSubmitScore={(submitScoreFn) => {
+                multiSyncSubmitScoreRef.current = submitScoreFn;
+              }}
+            />
           </div>
         </div>
 
@@ -2199,6 +2024,19 @@ const FlappyBTCChart: React.FC = () => {
           count={join.count} 
         />
       ))}
+
+      {/* Player History Modal */}
+      {showPlayerHistory && selectedPlayerAddress && (
+        <PlayerHistory
+          playerHistory={[]} // For now, empty history since we removed the backend
+          isVisible={showPlayerHistory}
+          onClose={() => {
+            setShowPlayerHistory(false);
+            setSelectedPlayerAddress('');
+          }}
+          playerAddress={selectedPlayerAddress}
+        />
+      )}
     </div>
   );
 };
