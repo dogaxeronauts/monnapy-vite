@@ -339,7 +339,10 @@ const FlappyBTCChart: React.FC = () => {
     canvas.focus();
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space") flap();
+      if (e.code === "Space") {
+        e.preventDefault(); // Prevent page scrolling
+        flap();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
 

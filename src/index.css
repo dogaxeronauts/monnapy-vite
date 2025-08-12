@@ -133,3 +133,41 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Hide Multisynq/Croquet Loading Screens */
+#croquet_spinnerOverlay,
+[id*="multisynq"],
+[class*="multisynq"],
+[id*="croquet_spinner"],
+[class*="croquet_spinner"],
+.croquet_loading,
+.multisynq_loading {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Prevent space key from scrolling the page */
+body {
+  overflow-x: hidden;
+}
+
+/* Disable space key scrolling specifically */
+body:focus {
+  outline: none;
+}
+
+/* Prevent default space key behavior on the document */
+html, body {
+  scroll-behavior: smooth;
+}
+
+/* Additional space key scroll prevention */
+body, html {
+  overscroll-behavior: none;
+}

@@ -1,9 +1,26 @@
 import { useAccount } from "wagmi";
 import { ConnectKitButton } from "connectkit";
+import { useEffect } from "react";
 import FlappyBird from "./components/FlappyBird";
+import { useHideMultisynqLoading } from "./hooks/useHideMultisynqLoading";
 
 export default function App() {
   const { isConnected } = useAccount();
+  
+  // Hide multisynq loading screen
+  useHideMultisynqLoading();
+
+  // Prevent space key from scrolling the page globally
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   if (isConnected) {
     return (
