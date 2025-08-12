@@ -10,18 +10,22 @@ import {
   useLiveNotifications 
 } from "./LiveNotifications";
 
-const GAME_WIDTH = 1000; // Much wider for better gaming experience
-const GAME_HEIGHT = 600; // Taller for better visibility
-const BIRD_X = 200; // Adjusted proportionally for larger screen
-const BIRD_SIZE = 70; // Larger bird for better visibility
-const GROUND_HEIGHT = 120; // Proportionally increased
-const GRAVITY = 0.25;
-const JUMP_FORCE = -8;
-const CANDLE_INTERVAL = 2000; // Slightly slower for bigger screen
-const MIN_GAP = 220; // Larger gap for bigger screen and bird
-const PIXEL_SIZE = 4;
-const POWER_UP_INTERVAL = 10000; // Power-up spawn interval in ms
-const POWER_UP_DURATION = 5000; // Power-up effect duration in ms
+const GAME_WIDTH = 1000; // Optimized for retro arcade feel
+const GAME_HEIGHT = 600; // Classic arcade proportions
+const BIRD_X = 180; // Adjusted for better gameplay flow
+const BIRD_SIZE = 50; // Main character size
+// Improved hitbox constants for better gameplay feel  
+const BIRD_HITBOX_SIZE = BIRD_SIZE * 0.7; // Smaller hitbox for more forgiving gameplay
+const POWERUP_COLLISION_RANGE = 12; // Slightly generous for collectibles
+const RUGPULL_COLLISION_RANGE = 15; // More forgiving for obstacles
+const GROUND_HEIGHT = 80; // Reduced for more play area
+const GRAVITY = 0.3; // More responsive arcade physics
+const JUMP_FORCE = -8.5; // Snappier jump response
+const CANDLE_INTERVAL = 1600; // Faster-paced arcade action
+const MIN_GAP = 180; // Balanced challenge
+const PIXEL_SIZE = 2; // Smaller pixels for cleaner retro look
+const POWER_UP_INTERVAL = 15000; // Less frequent, more valuable
+const POWER_UP_DURATION = 3000; // Shorter for arcade balance
 
 type Candle = {
   x: number;
@@ -178,32 +182,41 @@ const FlappyBTCChart: React.FC = () => {
     };
   };
 
+  // Optimized particle system for retro performance
   const createParticles = (
     x: number,
     y: number,
     count: number,
     color: string,
-    spread = 50
+    spread = 30 // Reduced spread for cleaner look
   ) => {
-    particlesRef.current.push(
-      ...Array.from({ length: count }, () => ({
-        x,
-        y,
-        vx: (Math.random() - 0.5) * spread,
-        vy: (Math.random() - 0.5) * spread,
-        life: 1,
-        maxLife: Math.random() * 30 + 30,
-        color,
-        size: Math.random() * 4 + 2
-      }))
-    );
+    // Limit total particles for smooth performance
+    const maxParticles = 25; // Reduced from unlimited
+    const currentCount = particlesRef.current.length;
+    const allowedCount = Math.min(count, Math.max(0, maxParticles - currentCount));
+    
+    if (allowedCount > 0) {
+      particlesRef.current.push(
+        ...Array.from({ length: allowedCount }, () => ({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * spread,
+          vy: (Math.random() - 0.5) * spread,
+          life: Math.random() * 15 + 10, // Shorter life for performance
+          maxLife: Math.random() * 15 + 10,
+          color,
+          size: Math.random() * 2 + 1 // Smaller retro particles
+        }))
+      );
+    }
   };
 
+  // Optimized particle physics for smooth performance
   const updateParticles = () => {
     particlesRef.current = particlesRef.current.filter(particle => {
-      particle.x += particle.vx;
-      particle.y += particle.vy;
-      particle.vy += 0.5; // gravity
+      particle.x += particle.vx * 0.8; // Slower, more controlled movement
+      particle.y += particle.vy * 0.8;
+      particle.vy += 0.3; // Reduced gravity for retro feel
       particle.life -= 1;
       return particle.life > 0;
     });
@@ -237,39 +250,71 @@ const FlappyBTCChart: React.FC = () => {
     });
   };
 
-  // Leaderboard API functions - Local storage only
+  // Submit high score to leaderboard - Only if better than previous best
   const submitScoreToLeaderboard = async (playerAddress: string, finalScore: number) => {
-    const tier = getNFTTier(finalScore).tier;
-    const gameTime = Date.now() - gameStartTimeRef.current; // Calculate game duration
-    const payload = { address: playerAddress, score: finalScore, timestamp: Date.now(), tier };
+    const previousBest = getCurrentPlayerBest();
+    
+    // Skip submission if score isn't higher than previous best
+    if (finalScore <= previousBest) {
+      console.log('🚫 Score not submitted - not higher than previous best:', { 
+        currentScore: finalScore, 
+        previousBest 
+      });
+      return;
+    }
 
-    console.log('📤 Submitting score locally:', { 
+    // Prepare score data
+    const tier = getNFTTier(finalScore).tier;
+    const gameTime = Date.now() - gameStartTimeRef.current;
+    const scoreData = { 
       address: playerAddress, 
       score: finalScore, 
+      timestamp: Date.now(), 
+      tier 
+    };
+
+    console.log('📤 Submitting new high score:', { 
+      player: playerAddress, 
+      newScore: finalScore, 
       tier, 
-      gameTime
+      gameTime: `${Math.round(gameTime / 1000)}s`,
+      improvement: `+${finalScore - previousBest}`
     });
 
-    // Update current score for React Together
+    // Update live score for real-time display
     setCurrentScore(finalScore);
 
-    // Submit to MultiUserLeaderboard (React Together synchronized)
+    // Submit to live multiplayer leaderboard
     if (multiSyncSubmitScoreRef.current) {
-      console.log('🌐 Submitting score to MultiUserLeaderboard:', finalScore);
+      console.log('🌐 Updating live leaderboard...');
       multiSyncSubmitScoreRef.current(finalScore);
     }
 
-    // REST API submission (backup for compatibility)
+    // Backup submission to REST API
     try {
       await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(scoreData),
       });
-      console.log('✅ Score submitted to REST API as backup');
+      console.log('✅ Score backup saved successfully');
     } catch (error) {
-      console.error('❌ REST API submission failed:', error);
+      console.error('❌ Score backup failed:', error);
     }
+  };
+
+  // Handle game end and score submission
+  const handleGameEnd = (finalScore: number) => {
+    if (!address) return;
+    
+    // Save to localStorage for backup
+    const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
+    scores[address] = Math.max(scores[address] || 0, finalScore);
+    localStorage.setItem('playerScores', JSON.stringify(scores));
+    setPlayerScores(scores);
+    
+    // Submit to leaderboard only if better than previous best
+    submitScoreToLeaderboard(address, finalScore);
   };
 
   // Load leaderboard on component mount - WebSocket handles this now
@@ -321,8 +366,8 @@ const FlappyBTCChart: React.FC = () => {
       gameStartTimeRef.current = Date.now();
     }
     
-    // Create jump particles
-    createParticles(BIRD_X, birdYRef.current, 8, "#fef08a", 30);
+    // Minimal jump particles for retro feel
+    createParticles(BIRD_X, birdYRef.current, 3, "#fef08a", 15);
     lastJumpTimeRef.current = Date.now();
     
     // Apply jump boost effect
@@ -376,6 +421,7 @@ const FlappyBTCChart: React.FC = () => {
     };
     window.addEventListener("keydown", handleKeyDown);
 
+    // Optimized pixel drawing for retro performance
     const drawPixel = (x: number, y: number, color: string) => {
       ctx.fillStyle = color;
       ctx.fillRect(
@@ -386,12 +432,15 @@ const FlappyBTCChart: React.FC = () => {
       );
     };
 
+    // High-performance rect drawing - direct fillRect for speed
     const drawPixelRect = (x: number, y: number, width: number, height: number, color: string) => {
-      for (let i = 0; i < width; i += PIXEL_SIZE) {
-        for (let j = 0; j < height; j += PIXEL_SIZE) {
-          drawPixel(x + i, y + j, color);
-        }
-      }
+      ctx.fillStyle = color;
+      ctx.fillRect(
+        Math.floor(x / PIXEL_SIZE) * PIXEL_SIZE,
+        Math.floor(y / PIXEL_SIZE) * PIXEL_SIZE,
+        Math.floor(width / PIXEL_SIZE) * PIXEL_SIZE,
+        Math.floor(height / PIXEL_SIZE) * PIXEL_SIZE
+      );
     };
 
     const draw = () => {
@@ -424,21 +473,13 @@ const FlappyBTCChart: React.FC = () => {
         }
       }
       
-      // Enhanced stars with twinkling effect
-      const starPositions = Array.from({ length: 80 }, (_, i) => ({
-        x: (Math.sin(i * 467.5489) * 0.5 + 0.5) * GAME_WIDTH,
-        y: (Math.cos(i * 364.2137) * 0.5 + 0.5) * (GAME_HEIGHT - GROUND_HEIGHT - 20),
-        twinkle: Math.sin(Date.now() * 0.002 + i) * 0.5 + 0.5
-      }));
-      
-      starPositions.forEach(({x, y, twinkle}) => {
-        const starSize = Math.random() < 0.2 ? PIXEL_SIZE * 2 : PIXEL_SIZE;
-        const alpha = 0.5 + twinkle * 0.5;
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        drawPixelRect(x - starSize/2, y - starSize/2, starSize, starSize, "#fef08a");
-        ctx.restore();
-      });
+      // Simple static stars for retro performance
+      const starCount = 25; // Reduced from 80 for performance
+      for (let i = 0; i < starCount; i++) {
+        const x = (Math.sin(i * 467.5489) * 0.5 + 0.5) * GAME_WIDTH;
+        const y = (Math.cos(i * 364.2137) * 0.5 + 0.5) * (GAME_HEIGHT - GROUND_HEIGHT - 20);
+        drawPixelRect(x - PIXEL_SIZE, y - PIXEL_SIZE, PIXEL_SIZE * 2, PIXEL_SIZE * 2, "#fef08a");
+      }
 
       // Get current time once for all animations
       const currentTime = Date.now();
@@ -575,18 +616,12 @@ const FlappyBTCChart: React.FC = () => {
         // Add subtle bounce animation
         const bounceOffset = Math.sin(Date.now() * 0.01) * 2;
         
-        // Glow effect
-        ctx.shadowColor = "#8B5CF6";
-        ctx.shadowBlur = 12;
-        ctx.globalAlpha = 0.8;
+        // Simple hedgehog without complex effects
+        ctx.save();
         
         // Position and rotate hedgehog
         ctx.translate(BIRD_X, birdY + bounceOffset);
         ctx.rotate(rotation);
-        
-        // Scale slightly based on velocity for dynamic effect
-        const scale = 1 + Math.abs(velocityRef.current) * 0.002;
-        ctx.scale(scale, scale);
         
         // Draw hedgehog image
         ctx.drawImage(
@@ -598,43 +633,18 @@ const FlappyBTCChart: React.FC = () => {
         );
         
         ctx.restore();
-        
-        // Additional glow ring effect
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(BIRD_X, birdY + bounceOffset, BIRD_SIZE * 0.7, 0, Math.PI * 2);
-        ctx.strokeStyle = "#8B5CF6";
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.3;
-        ctx.stroke();
-        ctx.restore();
       } else {
-        // Fallback to pixelated bird if image not loaded
-        const birdColors = ["#8B5CF6", "#A855F7", "#C084FC"];
+        // Simple fallback pixelated bird
+        const birdColor = "#8B5CF6";
         
-        // Draw bird body with enhanced glow effect
-        for (let i = 0; i < BIRD_SIZE; i += PIXEL_SIZE) {
-          for (let j = 0; j < BIRD_SIZE; j += PIXEL_SIZE) {
-            const color = birdColors[Math.floor(Math.random() * birdColors.length)];
-            if (Math.sqrt(Math.pow(i - BIRD_SIZE/2, 2) + Math.pow(j - BIRD_SIZE/2, 2)) < BIRD_SIZE/2) {
-              drawPixel(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, color);
-            }
-          }
-        }
-        
-        // Bird glow effect
-        ctx.save();
-        ctx.shadowColor = "#8B5CF6";
-        ctx.shadowBlur = 8;
-        ctx.globalAlpha = 0.3;
+        // Draw simple bird body
         for (let i = 0; i < BIRD_SIZE; i += PIXEL_SIZE) {
           for (let j = 0; j < BIRD_SIZE; j += PIXEL_SIZE) {
             if (Math.sqrt(Math.pow(i - BIRD_SIZE/2, 2) + Math.pow(j - BIRD_SIZE/2, 2)) < BIRD_SIZE/2) {
-              drawPixel(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, "#8B5CF6");
+              drawPixelRect(BIRD_X - BIRD_SIZE/2 + i, birdY - BIRD_SIZE/2 + j, PIXEL_SIZE, PIXEL_SIZE, birdColor);
             }
           }
         }
-        ctx.restore();
       }
 
       // Draw particles
@@ -979,8 +989,8 @@ const FlappyBTCChart: React.FC = () => {
               if (hasDoublePoints) points *= 2;
               if (hasScoreMultiplier) points *= 3;
               
-              // Create score particles
-              createParticles(c.x + c.width/2, c.low + (c.high - c.low)/2, 5, "#10b981", 25);
+              // Minimal score particles for retro feel
+              createParticles(c.x + c.width/2, c.low + (c.high - c.low)/2, 2, "#10b981", 15);
               
               setScore((prev) => {
                 const newScore = prev + points;
@@ -991,8 +1001,8 @@ const FlappyBTCChart: React.FC = () => {
                 
                 if (currentTier.tier !== previousTier.tier && newScore >= 750) {
                   setTierUpgradeTime(Date.now());
-                  addScreenShake(8, 500); // Tier upgrade shake
-                  createParticles(GAME_WIDTH/2, GAME_HEIGHT/2, 20, currentTier.color, 100);
+                  addScreenShake(4, 250); // Reduced shake for retro feel
+                  createParticles(GAME_WIDTH/2, GAME_HEIGHT/2, 6, currentTier.color, 40); // Reduced particles
                 }
                 
                 return newScore;
@@ -1031,7 +1041,7 @@ const FlappyBTCChart: React.FC = () => {
             const dy = p.y - birdYRef.current;
             const dist = Math.sqrt(dx * dx + dy * dy);
             
-            if (!p.collected && dist < BIRD_SIZE/2 + 15) {
+            if (!p.collected && dist < BIRD_HITBOX_SIZE/2 + POWERUP_COLLISION_RANGE) {
               p.collected = true;
               gameStatsRef.current.powerUpsCollected += 1;
               
@@ -1047,9 +1057,9 @@ const FlappyBTCChart: React.FC = () => {
                 case 'scoreMultiplier': powerUpColor = "#f97316"; break;
               }
               
-              // Create power-up collection effects
-              createParticles(p.x, p.y, 12, powerUpColor, 40);
-              addScreenShake(3, 200);
+              // Minimal power-up effects for retro performance
+              createParticles(p.x, p.y, 4, powerUpColor, 20);
+              addScreenShake(2, 100);
 
               switch(p.type) {
                 case 'shield':
@@ -1079,13 +1089,21 @@ const FlappyBTCChart: React.FC = () => {
           })
           .filter((p) => !p.collected && p.x > -30);
 
-        // Candle collision with shield/invincibility check
+        // Candle collision - only direct hits count
         for (const c of candlesRef.current) {
+          // Check if bird is horizontally overlapping with candle
           const hitX = BIRD_X + BIRD_SIZE/2 > c.x && BIRD_X - BIRD_SIZE/2 < c.x + c.width;
-          const hitY = birdYRef.current + BIRD_SIZE/2 < c.low || birdYRef.current - BIRD_SIZE/2 > c.high;
-          if (hitX && hitY) {
-            const hasShield = (activeEffectsRef.current.shield?.until ?? 0) > currentTime;
-            const hasInvincibility = (activeEffectsRef.current.invincibility?.until ?? 0) > currentTime;
+          
+          if (hitX) {
+            // Check if bird is in the safe gap area
+            const birdTop = birdYRef.current - BIRD_SIZE/2;
+            const birdBottom = birdYRef.current + BIRD_SIZE/2;
+            const inSafeGap = (birdTop >= c.low) && (birdBottom <= c.high);
+            
+            // Only collision if NOT in safe gap (i.e., hitting actual candle)
+            if (!inSafeGap) {
+              const hasShield = (activeEffectsRef.current.shield?.until ?? 0) > currentTime;
+              const hasInvincibility = (activeEffectsRef.current.invincibility?.until ?? 0) > currentTime;
             
             if (hasShield || hasInvincibility) {
               // Remove the candle instead of game over when protected
@@ -1098,32 +1116,25 @@ const FlappyBTCChart: React.FC = () => {
               });
             } else {
               setGameOver(true);
-              // Add collision effects
-              addScreenShake(15, 800);
-              createParticles(BIRD_X, birdYRef.current, 25, "#ef4444", 80);
+              // Minimal collision effects for retro feel
+              addScreenShake(6, 300);
+              createParticles(BIRD_X, birdYRef.current, 8, "#ef4444", 30);
               
-              // Save player score when game ends
-              // Save to localStorage for backup
-              const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
-              if (address) {
-                scores[address] = Math.max(scores[address] || 0, score);
-                localStorage.setItem('playerScores', JSON.stringify(scores));
-                setPlayerScores(scores);
-                
-                // Submit to Multisynq and other services
-                submitScoreToLeaderboard(address, score);
-              }
+              // Handle game end and score submission
+              handleGameEnd(score);
               return; // Stop game loop immediately when game over
             }
           }
         }
+        }
 
-        // Rug pull collision with shield check
+        // Rug pull collision with improved hitbox
         for (const r of rugPullsRef.current) {
           const dx = r.x - BIRD_X;
           const dy = r.y - birdYRef.current;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < BIRD_SIZE/2 + 10) {
+          // Use smaller hitbox and more reasonable collision range
+          if (dist < BIRD_HITBOX_SIZE/2 + RUGPULL_COLLISION_RANGE) {
             if ((activeEffectsRef.current.shield?.until ?? 0) > currentTime) {
               // Remove the rug pull instead of game over when shielded
               rugPullsRef.current = rugPullsRef.current.filter(rug => rug !== r);
@@ -1135,38 +1146,21 @@ const FlappyBTCChart: React.FC = () => {
               });
             } else {
               setGameOver(true);
-              // Save player score when game ends
-              // Save to localStorage for backup
-              const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
-              if (address) {
-                scores[address] = Math.max(scores[address] || 0, score);
-                localStorage.setItem('playerScores', JSON.stringify(scores));
-                setPlayerScores(scores);
-                
-                // Submit to Multisynq and other services
-                submitScoreToLeaderboard(address, score);
-              }
+              // Handle game end and score submission
+              handleGameEnd(score);
             }
           }
         }
 
+        // Ground and ceiling collision with improved hitbox
         if (
           gameStarted &&
-          (birdYRef.current + BIRD_SIZE/2 > GAME_HEIGHT - GROUND_HEIGHT ||
-           birdYRef.current < BIRD_SIZE/2)
+          (birdYRef.current + BIRD_HITBOX_SIZE/2 > GAME_HEIGHT - GROUND_HEIGHT ||
+           birdYRef.current - BIRD_HITBOX_SIZE/2 < 0)
         ) {
           setGameOver(true);
-          // Save player score when game ends
-          // Save to localStorage for backup
-          const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
-          if (address) {
-            scores[address] = Math.max(scores[address] || 0, score);
-            localStorage.setItem('playerScores', JSON.stringify(scores));
-            setPlayerScores(scores);
-            
-            // Submit to Multisynq and other services
-            submitScoreToLeaderboard(address, score);
-          }
+          // Handle game end and score submission
+          handleGameEnd(score);
         }
       }
 
