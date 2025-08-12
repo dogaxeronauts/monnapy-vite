@@ -21,10 +21,8 @@ const router = createBrowserRouter(
 );
 
 export const Providers = () => {
-  // Use production API key in production, development key in development
-  const apiKey = import.meta.env.PROD 
-    ? import.meta.env.VITE_MULTISYNQ_API_KEY_PROD || import.meta.env.VITE_MULTISYNQ_API_KEY
-    : import.meta.env.VITE_MULTISYNQ_API_KEY;
+  // Build-time injection - browser'da kaynak kodda görünmez
+  const apiKey = __MULTISYNQ_API_KEY__;
 
   return (
     <WagmiProvider config={config}>
