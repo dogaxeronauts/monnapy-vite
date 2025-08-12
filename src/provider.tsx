@@ -33,7 +33,7 @@ export const Providers = () => {
           <ReactTogether
             sessionParams={{
               appId: 'io.multisynq.monnapy.flappybird',
-              apiKey: apiKey || 'your-api-key-here', // Get from https://multisynq.io/coder
+              apiKey: apiKey || 'your-api-key-here',
               name: 'flappy-bird-global-leaderboard',
               password: 'monnapy2024'
             }}
