@@ -101,7 +101,6 @@ const FlappyBTCChart: React.FC = () => {
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [gameStarted, setGameStarted] = useState<boolean>(false);
   const [combo, setCombo] = useState(0);
-  const [playerScores, setPlayerScores] = useState<{[address: string]: number}>({});
   const [tierUpgradeTime, setTierUpgradeTime] = useState<number>(0);
   const [showPlayerHistory, setShowPlayerHistory] = useState(false);
   const [selectedPlayerAddress, setSelectedPlayerAddress] = useState<string>('');
@@ -115,12 +114,6 @@ const FlappyBTCChart: React.FC = () => {
   // Reference to MultiUserLeaderboard submit function
   const multiSyncSubmitScoreRef = useRef<((score: number) => void) | null>(null);
   
-  // Load saved scores when component mounts or address changes
-  useEffect(() => {
-    const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-    setPlayerScores(savedScores);
-  }, [address, isConnected]);
-
   // Load hedgehog image
   useEffect(() => {
     const loadHedgehogImage = () => {
@@ -139,9 +132,10 @@ const FlappyBTCChart: React.FC = () => {
     loadHedgehogImage();
   }, []);
 
-  // Get current player's best score (from local storage)
+  // Get current player's best score (will be handled by MultiSynq leaderboard)
   const getCurrentPlayerBest = () => {
-    return (address && playerScores[address]) || 0;
+    // This will be handled by MultiUserLeaderboard component
+    return 0;
   };
 
   // Get NFT tier based on score (matches contract enum exactly)
@@ -239,70 +233,20 @@ const FlappyBTCChart: React.FC = () => {
     });
   };
 
-  // Submit high score to leaderboard - Only if better than previous best
-  const submitScoreToLeaderboard = async (playerAddress: string, finalScore: number) => {
-    const previousBest = getCurrentPlayerBest();
-    
-    // Skip submission if score isn't higher than previous best
-    if (finalScore <= previousBest) {
-      console.log('🚫 Score not submitted - not higher than previous best:', { 
-        currentScore: finalScore, 
-        previousBest 
-      });
-      return;
-    }
-
-    // Calculate tier for logging
-    const tier = getNFTTier(finalScore).tier;
-    const gameTime = Date.now() - gameStartTimeRef.current;
-
-    console.log('📤 Submitting new high score:', { 
-      player: playerAddress, 
-      newScore: finalScore, 
-      tier, 
-      gameTime: `${Math.round(gameTime / 1000)}s`,
-      improvement: `+${finalScore - previousBest}`
-    });
-
-    // Update live score for real-time display
-    setCurrentScore(finalScore);
-
-    // Save to localStorage directly
-    const scores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-    scores[playerAddress] = Math.max(scores[playerAddress] || 0, finalScore);
-    localStorage.setItem('playerScores', JSON.stringify(scores));
-    setPlayerScores(scores);
-
-    // Also submit to MultiUserLeaderboard if available
-    if (multiSyncSubmitScoreRef.current) {
-      multiSyncSubmitScoreRef.current(finalScore);
-    }
-
-    console.log('✅ Score saved to localStorage and leaderboard successfully');
-  };
-
   // Handle game end and score submission
   const handleGameEnd = (finalScore: number) => {
     if (!address) return;
     
-    // Save to localStorage for backup
-    const scores = (JSON.parse(localStorage.getItem('playerScores') || '{}') as Record<string, number>);
-    scores[address] = Math.max(scores[address] || 0, finalScore);
-    localStorage.setItem('playerScores', JSON.stringify(scores));
-    setPlayerScores(scores);
-    
-    // Submit to leaderboard only if better than previous best
-    submitScoreToLeaderboard(address, finalScore);
+    // Submit to MultiSynq leaderboard - no localStorage needed
+    if (multiSyncSubmitScoreRef.current && finalScore > 0) {
+      console.log('📤 Submitting score to MultiSynq leaderboard:', finalScore);
+      multiSyncSubmitScoreRef.current(finalScore);
+    }
   };
 
   // Load leaderboard on component mount - WebSocket handles this now
   useEffect(() => {
     
-    // Load game stats from localStorage
-    const savedStats = localStorage.getItem('gameStats');
-    if (savedStats) {
-      gameStatsRef.current = JSON.parse(savedStats);
-    }
   }, []);
 
   const resetGame = () => {
@@ -311,7 +255,7 @@ const FlappyBTCChart: React.FC = () => {
       stats.totalGamesPlayed++;
       stats.totalTimePlayed += Date.now() - gameStartTimeRef.current;
       stats.bestCombo = Math.max(stats.bestCombo, combo);
-      localStorage.setItem('gameStats', JSON.stringify(stats));
+      // Game stats no longer saved to localStorage, handled by MultiSynq
     })();
 
     setScore(0);
@@ -1151,7 +1095,7 @@ const FlappyBTCChart: React.FC = () => {
       cancelAnimationFrame(animationRef.current!);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address, playerScores]); // Added address and playerScores for live updates
+  }, [gameOver, gameStarted, score, combo, tierUpgradeTime, address]); // MultiSynq handles player scores
 
   // ScoreTierNFT minting function - with error handling for contract issues
   const mintNFT = async () => {

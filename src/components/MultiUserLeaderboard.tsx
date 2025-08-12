@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useStateTogether, useMyId, useConnectedUsers } from 'react-together';
 
 interface LeaderboardEntry {
   address: string;
   score: number;
   timestamp: number;
   tier: string;
-  isOnline?: boolean;
+  nickname: string;
 }
 
 interface MultiUserLeaderboardProps {
@@ -23,55 +24,76 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
   getNFTTier,
   onSubmitScore
 }) => {
-  // Local state for leaderboard - using localStorage instead of react-together
-  const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>([]);
+  // Real-time synchronized leaderboard using MultiSynq
+  const [globalLeaderboard, setGlobalLeaderboard] = useStateTogether<LeaderboardEntry[]>('global-leaderboard', []);
+  const myId = useMyId();
+  const connectedUsers = useConnectedUsers();
+  
+  // Local state for current player's best score
   const [myBestScore, setMyBestScore] = useState<number>(0);
 
-  // Load leaderboard from localStorage on mount
+  // Calculate current player's best score from global leaderboard
   useEffect(() => {
-    const savedLeaderboard = localStorage.getItem('globalLeaderboard');
-    if (savedLeaderboard) {
-      setGlobalLeaderboard(JSON.parse(savedLeaderboard));
+    if (currentPlayerAddress && globalLeaderboard.length > 0) {
+      const myEntry = globalLeaderboard.find(entry => 
+        entry.address.toLowerCase() === currentPlayerAddress.toLowerCase()
+      );
+      setMyBestScore(myEntry?.score || 0);
     }
-    
-    // Load player's best score
-    if (currentPlayerAddress) {
-      const playerScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-      setMyBestScore(playerScores[currentPlayerAddress] || 0);
-    }
-  }, [currentPlayerAddress]);
+  }, [currentPlayerAddress, globalLeaderboard]);
 
-  // Submit score to localStorage leaderboard
+  // Submit score to global leaderboard (MultiSynq synchronized)
   const submitScore = useCallback((score: number) => {
-    if (!currentPlayerAddress || score === 0) return;
+    if (!currentPlayerAddress || !myId) {
+      console.log('❌ Submission rejected - missing address or session ID');
+      return;
+    }
+
+    // Find existing entry for this player
+    const existingEntryIndex = globalLeaderboard.findIndex(entry => 
+      entry.address.toLowerCase() === currentPlayerAddress.toLowerCase()
+    );
+    
+    const previousBest = existingEntryIndex >= 0 ? globalLeaderboard[existingEntryIndex].score : 0;
+    
+    console.log('🏆 MultiSynq Score submission:', { 
+      score, 
+      previousBest, 
+      isNewBest: score > previousBest,
+      player: currentPlayerAddress
+    });
+    
+    // Only update if it's a new personal best
+    if (score <= previousBest) {
+      console.log('🚫 Score not added to leaderboard - not better than previous best');
+      return;
+    }
 
     const newEntry: LeaderboardEntry = {
       address: currentPlayerAddress,
       score,
       timestamp: Date.now(),
       tier: getNFTTier(score).tier,
-      isOnline: true
+      nickname: `${currentPlayerAddress.slice(0, 8)}...${currentPlayerAddress.slice(-6)}` // Always use wallet address format
     };
 
+    // Update synchronized leaderboard
     setGlobalLeaderboard(prev => {
-      // Remove any existing entries for this player
-      const filtered = prev.filter(entry => entry.address !== currentPlayerAddress);
+      // Remove existing entry for this player
+      const filtered = prev.filter(entry => 
+        entry.address.toLowerCase() !== currentPlayerAddress.toLowerCase()
+      );
+      
       // Add new entry and sort by score
       const updated = [...filtered, newEntry].sort((a, b) => b.score - a.score);
+      
       // Keep only top 50 entries
       const newLeaderboard = updated.slice(0, 50);
       
-      // Save to localStorage
-      localStorage.setItem('globalLeaderboard', JSON.stringify(newLeaderboard));
+      console.log('✅ MultiSynq Leaderboard updated with new score:', score);
       return newLeaderboard;
     });
-    
-    // Update player's best score
-    setMyBestScore(score);
-    const playerScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
-    playerScores[currentPlayerAddress] = Math.max(playerScores[currentPlayerAddress] || 0, score);
-    localStorage.setItem('playerScores', JSON.stringify(playerScores));
-  }, [currentPlayerAddress, getNFTTier]);
+  }, [currentPlayerAddress, myId, getNFTTier, globalLeaderboard, setGlobalLeaderboard]);
 
   // Provide submitScore function to parent component
   useEffect(() => {
@@ -80,13 +102,18 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
     }
   }, [onSubmitScore, submitScore]);
 
-  // Create enhanced leaderboard with nicknames
+  // Create enhanced leaderboard with online status
   const enhancedLeaderboard = React.useMemo(() => {
-    return globalLeaderboard.map(entry => ({
-      ...entry,
-      isOnline: entry.address === currentPlayerAddress, // Current player is always "online"
-      nickname: `${entry.address.slice(0, 8)}...${entry.address.slice(-6)}`
-    }));
+    return globalLeaderboard.map(entry => {
+      // Check if this user is currently connected (simplified check)
+      const isUserOnline = entry.address.toLowerCase() === currentPlayerAddress?.toLowerCase();
+      
+      return {
+        ...entry,
+        isOnline: isUserOnline,
+        displayNickname: `${entry.address.slice(0, 8)}...${entry.address.slice(-6)}` // Always show wallet address format
+      };
+    });
   }, [globalLeaderboard, currentPlayerAddress]);
 
   // Get current player's rank
@@ -97,8 +124,8 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
     return rank > 0 ? rank : null;
   };
 
-  // Get online players count (simplified to 1 for current player)
-  const onlineCount = 1;
+  // Get total connected users count
+  const onlineCount = connectedUsers.length;
 
   return (
     <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-6 border-2 border-yellow-500/30 h-full min-h-[600px] xl:min-h-[calc(75vh-8rem)] flex flex-col">
@@ -187,7 +214,7 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <span className="text-white text-xs font-['Press_Start_2P']">
-                      {entry.nickname}
+                      {entry.displayNickname}
                     </span>
                     {/* Online indicator */}
                     <div className={`w-2 h-2 rounded-full ${
