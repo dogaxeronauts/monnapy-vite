@@ -21,7 +21,7 @@ const RUGPULL_COLLISION_RANGE = 15; // More forgiving for obstacles
 const GROUND_HEIGHT = 80; // Reduced for more play area
 const GRAVITY = 0.3; // More responsive arcade physics
 const JUMP_FORCE = -8; // Snappier jump response
-const CANDLE_INTERVAL = 1400; // Faster-paced arcade action
+const CANDLE_INTERVAL = 1600; // Faster-paced arcade action
 const MIN_GAP = 200; // Balanced challenge
 const PIXEL_SIZE = 2; // Smaller pixels for cleaner retro look
 const POWER_UP_INTERVAL = 15000; // Less frequent, more valuable
@@ -684,7 +684,7 @@ const FlappyBTCChart: React.FC = () => {
       // Main score with pulsing effect
       const scoreFlash = Math.sin(Date.now() * 0.02) * 0.3 + 0.7;
       ctx.fillStyle = `rgb(${254 * scoreFlash}, ${240 * scoreFlash}, ${138})`;
-      ctx.font = "22px 'Press Start 2P'"; // Larger font
+      ctx.font = "24px 'Press Start 2P'"; // Larger font
       ctx.textAlign = "left";
       ctx.fillText(`SCORE: ${score}`, 20, 36);
       
