@@ -10,19 +10,19 @@ import {
   useLiveNotifications 
 } from "./LiveNotifications";
 
-const GAME_WIDTH = 1000; // Optimized for retro arcade feel
-const GAME_HEIGHT = 600; // Classic arcade proportions
-const BIRD_X = 180; // Adjusted for better gameplay flow
-const BIRD_SIZE = 50; // Main character size
+const GAME_WIDTH = 1200; // Optimized for retro arcade feel
+const GAME_HEIGHT = 800; // Classic arcade proportions
+const BIRD_X = 200; // Adjusted for better gameplay flow
+const BIRD_SIZE = 65; // Main character size
 // Improved hitbox constants for better gameplay feel  
 const BIRD_HITBOX_SIZE = BIRD_SIZE * 0.7; // Smaller hitbox for more forgiving gameplay
 const POWERUP_COLLISION_RANGE = 12; // Slightly generous for collectibles
 const RUGPULL_COLLISION_RANGE = 15; // More forgiving for obstacles
 const GROUND_HEIGHT = 80; // Reduced for more play area
 const GRAVITY = 0.3; // More responsive arcade physics
-const JUMP_FORCE = -8.5; // Snappier jump response
-const CANDLE_INTERVAL = 1600; // Faster-paced arcade action
-const MIN_GAP = 180; // Balanced challenge
+const JUMP_FORCE = -8; // Snappier jump response
+const CANDLE_INTERVAL = 1400; // Faster-paced arcade action
+const MIN_GAP = 200; // Balanced challenge
 const PIXEL_SIZE = 2; // Smaller pixels for cleaner retro look
 const POWER_UP_INTERVAL = 15000; // Less frequent, more valuable
 const POWER_UP_DURATION = 3000; // Shorter for arcade balance
@@ -123,9 +123,6 @@ const FlappyBTCChart: React.FC = () => {
   // Basic state for current score
   const [currentScore, setCurrentScore] = useState(0);
   
-  // Reference to MultiUserLeaderboard's submitScore function
-  const multiSyncSubmitScoreRef = useRef<((score: number) => void) | null>(null);
-
   // Load saved scores when component mounts or address changes
   useEffect(() => {
     const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
@@ -284,11 +281,11 @@ const FlappyBTCChart: React.FC = () => {
     // Update live score for real-time display
     setCurrentScore(finalScore);
 
-    // Submit to live multiplayer leaderboard
-    if (multiSyncSubmitScoreRef.current) {
-      console.log('🌐 Updating live leaderboard...');
-      multiSyncSubmitScoreRef.current(finalScore);
-    }
+    // Save to localStorage directly (no need for multiSyncSubmitScoreRef)
+    const scores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+    scores[playerAddress] = Math.max(scores[playerAddress] || 0, finalScore);
+    localStorage.setItem('playerScores', JSON.stringify(scores));
+    setPlayerScores(scores);
 
     // Backup submission to REST API
     try {
@@ -1684,9 +1681,6 @@ const FlappyBTCChart: React.FC = () => {
                 setShowPlayerHistory(true);
               }}
               getNFTTier={getNFTTier}
-              onSubmitScore={(submitScoreFn) => {
-                multiSyncSubmitScoreRef.current = submitScoreFn;
-              }}
             />
           </div>
         </div>

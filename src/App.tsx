@@ -1,36 +1,33 @@
 import { useAccount } from "wagmi";
 import { ConnectKitButton } from "connectkit";
-import { ReactTogether } from "react-together";
 import FlappyBird from "./components/FlappyBird";
 
 export default function App() {
   const { isConnected } = useAccount();
 
-  // Wrap the entire app with ReactTogether
-  const AppContent = () => {
-    if (isConnected) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-          <main className="container mx-auto px-4 py-8">
-            <div className="flex flex-col items-center gap-4">
-              <ConnectKitButton.Custom>
-                {({ isConnected, show, truncatedAddress, ensName }) => {
-                  return (
-                    <button 
-                      onClick={show}
-                      className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 border-2 border-purple-500/30 hover:border-purple-400/50 shadow-lg hover:shadow-purple-500/25"
-                    >
-                      {isConnected ? (ensName ?? truncatedAddress) : "Connad Wallet"}
-                    </button>
-                  );
-                }}
-              </ConnectKitButton.Custom>
-              <FlappyBird />
-            </div>
-          </main>
-        </div>
-      );
-    }
+  if (isConnected) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex flex-col items-center gap-4">
+            <ConnectKitButton.Custom>
+              {({ isConnected, show, truncatedAddress, ensName }) => {
+                return (
+                  <button 
+                    onClick={show}
+                    className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 border-2 border-purple-500/30 hover:border-purple-400/50 shadow-lg hover:shadow-purple-500/25"
+                  >
+                    {isConnected ? (ensName ?? truncatedAddress) : "Connect Wallet"}
+                  </button>
+                );
+              }}
+            </ConnectKitButton.Custom>
+            <FlappyBird />
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden">
@@ -194,29 +191,5 @@ export default function App() {
         </footer>
       </main>
     </div>
-  );
-};
-
-  return (
-    <ReactTogether
-      sessionParams={{
-        appId: 'io.multisynq.monapy.flappybird',
-        apiKey: import.meta.env.VITE_MULTISYNQ_API_KEY || 'YOUR_MULTISYNQ_API_KEY',
-        name: 'monapy-global-session',
-        password: 'monapy-2024'
-      }}
-      rememberUsers={true}
-      deriveNickname={(userId: string) => {
-        // Create gaming nicknames from wallet addresses
-        const shortId = userId.slice(0, 8);
-        const names = ['Crypto', 'Monad', 'Gamer', 'Hodler', 'Trader', 'Player'];
-        const adjectives = ['Pro', 'Elite', 'Swift', 'Bold', 'Epic', 'Mega'];
-        const name = names[parseInt(shortId.slice(0, 2), 16) % names.length];
-        const adj = adjectives[parseInt(shortId.slice(2, 4), 16) % adjectives.length];
-        return `${adj}${name}`;
-      }}
-    >
-      <AppContent />
-    </ReactTogether>
   );
 }

@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
-import { useStateTogether, useStateTogetherWithPerUserValues, useConnectedUsers, useNicknames } from 'react-together';
+import React, { useCallback, useEffect, useState } from 'react';
 
 interface LeaderboardEntry {
   address: string;
@@ -24,18 +23,25 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
   getNFTTier,
   onSubmitScore
 }) => {
-  // React Together hooks for synchronized state
-  const [globalLeaderboard, setGlobalLeaderboard] = useStateTogether<LeaderboardEntry[]>('game-leaderboard', []);
-  const [myBestScore, setMyBestScore] = useStateTogetherWithPerUserValues<number>('player-best-scores', 0, {
-    keepValues: true,
-    omitMyValue: false
-  });
-  
-  // Get connected users and nicknames
-  const connectedUsers = useConnectedUsers();
-  const [, , allNicknames] = useNicknames();
+  // Local state for leaderboard - using localStorage instead of react-together
+  const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [myBestScore, setMyBestScore] = useState<number>(0);
 
-  // Submit score to global leaderboard
+  // Load leaderboard from localStorage on mount
+  useEffect(() => {
+    const savedLeaderboard = localStorage.getItem('globalLeaderboard');
+    if (savedLeaderboard) {
+      setGlobalLeaderboard(JSON.parse(savedLeaderboard));
+    }
+    
+    // Load player's best score
+    if (currentPlayerAddress) {
+      const playerScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+      setMyBestScore(playerScores[currentPlayerAddress] || 0);
+    }
+  }, [currentPlayerAddress]);
+
+  // Submit score to localStorage leaderboard
   const submitScore = useCallback((score: number) => {
     if (!currentPlayerAddress || score === 0) return;
 
@@ -53,16 +59,19 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
       // Add new entry and sort by score
       const updated = [...filtered, newEntry].sort((a, b) => b.score - a.score);
       // Keep only top 50 entries
-      return updated.slice(0, 50);
+      const newLeaderboard = updated.slice(0, 50);
+      
+      // Save to localStorage
+      localStorage.setItem('globalLeaderboard', JSON.stringify(newLeaderboard));
+      return newLeaderboard;
     });
-  }, [currentPlayerAddress, setGlobalLeaderboard, getNFTTier]);
-
-  // Only update best score when score increases (but don't auto-submit)
-  useEffect(() => {
-    if (currentScore > myBestScore) {
-      setMyBestScore(currentScore);
-    }
-  }, [currentScore, myBestScore, setMyBestScore]);
+    
+    // Update player's best score
+    setMyBestScore(score);
+    const playerScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
+    playerScores[currentPlayerAddress] = Math.max(playerScores[currentPlayerAddress] || 0, score);
+    localStorage.setItem('playerScores', JSON.stringify(playerScores));
+  }, [currentPlayerAddress, getNFTTier]);
 
   // Provide submitScore function to parent component
   useEffect(() => {
@@ -71,16 +80,14 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
     }
   }, [onSubmitScore, submitScore]);
 
-  // Create enhanced leaderboard with online status
+  // Create enhanced leaderboard with nicknames
   const enhancedLeaderboard = React.useMemo(() => {
-    const connectedUserIds = new Set(connectedUsers.map(user => user.userId));
-    
     return globalLeaderboard.map(entry => ({
       ...entry,
-      isOnline: connectedUserIds.has(entry.address),
-      nickname: allNicknames[entry.address] || `${entry.address.slice(0, 8)}...${entry.address.slice(-6)}`
+      isOnline: entry.address === currentPlayerAddress, // Current player is always "online"
+      nickname: `${entry.address.slice(0, 8)}...${entry.address.slice(-6)}`
     }));
-  }, [globalLeaderboard, connectedUsers, allNicknames]);
+  }, [globalLeaderboard, currentPlayerAddress]);
 
   // Get current player's rank
   const getPlayerRank = () => {
@@ -90,8 +97,8 @@ const MultiUserLeaderboard: React.FC<MultiUserLeaderboardProps> = ({
     return rank > 0 ? rank : null;
   };
 
-  // Get online players count
-  const onlineCount = connectedUsers.length;
+  // Get online players count (simplified to 1 for current player)
+  const onlineCount = 1;
 
   return (
     <div className="arcade-panel relative overflow-hidden rounded-lg bg-gradient-to-r from-yellow-800 to-yellow-900 p-6 border-2 border-yellow-500/30 h-full min-h-[600px] xl:min-h-[calc(75vh-8rem)] flex flex-col">
