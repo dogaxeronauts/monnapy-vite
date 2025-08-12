@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:vercel": "vite build --mode production",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
     "server": "node server.cjs",
