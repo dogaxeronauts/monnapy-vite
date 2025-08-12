@@ -112,6 +112,9 @@ const FlappyBTCChart: React.FC = () => {
   // Basic state for current score
   const [currentScore, setCurrentScore] = useState(0);
   
+  // Reference to MultiUserLeaderboard submit function
+  const multiSyncSubmitScoreRef = useRef<((score: number) => void) | null>(null);
+  
   // Load saved scores when component mounts or address changes
   useEffect(() => {
     const savedScores = JSON.parse(localStorage.getItem('playerScores') || '{}');
@@ -270,7 +273,12 @@ const FlappyBTCChart: React.FC = () => {
     localStorage.setItem('playerScores', JSON.stringify(scores));
     setPlayerScores(scores);
 
-    console.log('✅ Score saved to localStorage successfully');
+    // Also submit to MultiUserLeaderboard if available
+    if (multiSyncSubmitScoreRef.current) {
+      multiSyncSubmitScoreRef.current(finalScore);
+    }
+
+    console.log('✅ Score saved to localStorage and leaderboard successfully');
   };
 
   // Handle game end and score submission
@@ -1654,6 +1662,9 @@ const FlappyBTCChart: React.FC = () => {
                 setShowPlayerHistory(true);
               }}
               getNFTTier={getNFTTier}
+              onSubmitScore={(submitFn) => {
+                multiSyncSubmitScoreRef.current = submitFn;
+              }}
             />
           </div>
         </div>
