@@ -4,11 +4,6 @@ import { ethers } from "ethers";
 import { GAME_CONFIG } from "../config";
 import MultiUserLeaderboard from "./MultiUserLeaderboard";
 import PlayerHistory from "./PlayerHistory";
-import { 
-  LiveScoreNotification, 
-  LivePlayerJoinNotification, 
-  useLiveNotifications 
-} from "./LiveNotifications";
 
 const GAME_WIDTH = 1200; // Optimized for retro arcade feel
 const GAME_HEIGHT = 800; // Classic arcade proportions
@@ -113,12 +108,6 @@ const FlappyBTCChart: React.FC = () => {
   
   const { isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
-
-  // Live notifications for enhanced UX  
-  const { 
-    scoreUpdates, 
-    playerJoins
-  } = useLiveNotifications();
 
   // Basic state for current score
   const [currentScore, setCurrentScore] = useState(0);
@@ -260,15 +249,9 @@ const FlappyBTCChart: React.FC = () => {
       return;
     }
 
-    // Prepare score data
+    // Calculate tier for logging
     const tier = getNFTTier(finalScore).tier;
     const gameTime = Date.now() - gameStartTimeRef.current;
-    const scoreData = { 
-      address: playerAddress, 
-      score: finalScore, 
-      timestamp: Date.now(), 
-      tier 
-    };
 
     console.log('📤 Submitting new high score:', { 
       player: playerAddress, 
@@ -281,23 +264,13 @@ const FlappyBTCChart: React.FC = () => {
     // Update live score for real-time display
     setCurrentScore(finalScore);
 
-    // Save to localStorage directly (no need for multiSyncSubmitScoreRef)
+    // Save to localStorage directly
     const scores = JSON.parse(localStorage.getItem('playerScores') || '{}');
     scores[playerAddress] = Math.max(scores[playerAddress] || 0, finalScore);
     localStorage.setItem('playerScores', JSON.stringify(scores));
     setPlayerScores(scores);
 
-    // Backup submission to REST API
-    try {
-      await fetch(`${GAME_CONFIG.BACKEND_URL}/api/leaderboard`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(scoreData),
-      });
-      console.log('✅ Score backup saved successfully');
-    } catch (error) {
-      console.error('❌ Score backup failed:', error);
-    }
+    console.log('✅ Score saved to localStorage successfully');
   };
 
   // Handle game end and score submission
@@ -1999,19 +1972,6 @@ const FlappyBTCChart: React.FC = () => {
           animation: scanline 2s linear infinite;
         }
       `}</style>
-
-      {/* Live Notifications */}
-      {scoreUpdates.map((update: any, index: number) => (
-        <LiveScoreNotification key={`score-${index}`} update={update} />
-      ))}
-      
-      {playerJoins.map((join, index) => (
-        <LivePlayerJoinNotification 
-          key={`join-${index}`} 
-          address={join.address} 
-          count={join.count} 
-        />
-      ))}
 
       {/* Player History Modal */}
       {showPlayerHistory && selectedPlayerAddress && (
