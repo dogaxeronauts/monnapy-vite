@@ -16,7 +16,8 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       // Build-time replacement - güvenli çünkü bundled olarak gelir
-      __MULTISYNQ_API_KEY__: JSON.stringify(env.MULTISYNQ_API_KEY)
+      __MULTISYNQ_API_KEY__: JSON.stringify(env.MULTISYNQ_API_KEY),
+      __REACT_TOGETHER_PASSWORD__: JSON.stringify(env.REACT_TOGETHER_PASSWORD)
     }
   }
 })

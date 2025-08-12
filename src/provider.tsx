@@ -23,6 +23,7 @@ const router = createBrowserRouter(
 export const Providers = () => {
   // Build-time injection - browser'da kaynak kodda görünmez
   const apiKey = __MULTISYNQ_API_KEY__;
+  const sessionPassword = __REACT_TOGETHER_PASSWORD__;
 
   return (
     <WagmiProvider config={config}>
@@ -33,7 +34,7 @@ export const Providers = () => {
               appId: 'io.multisynq.monnapy.flappybird',
               apiKey: apiKey || 'your-api-key-here',
               name: 'flappy-bird-global-leaderboard',
-              password: 'monnapy2024'
+              password: sessionPassword
             }}
             rememberUsers={true}
           >
